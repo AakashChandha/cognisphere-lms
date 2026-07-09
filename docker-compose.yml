@@ -1,0 +1,84 @@
+services:
+  postgres:
+    image: postgres:16-alpine
+    container_name: lms-postgres
+    restart: unless-stopped
+    env_file:
+      - .env
+    environment:
+      POSTGRES_DB: ${POSTGRES_DB}
+      POSTGRES_USER: ${POSTGRES_USER}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
+    ports:
+      - "${POSTGRES_PORT}:5432"
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+      - ./postgres/init:/docker-entrypoint-initdb.d:ro
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U $$POSTGRES_USER -d $$POSTGRES_DB"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    networks:
+      - lms_network
+
+  backend:
+    build:
+      context: ./backend
+    container_name: lms-backend
+    restart: unless-stopped
+    env_file:
+      - .env
+    environment:
+      BACKEND_PORT: ${BACKEND_PORT}
+      DB_HOST: postgres
+      DB_PORT: 5432
+      DB_NAME: ${POSTGRES_DB}
+      DB_USER: ${POSTGRES_USER}
+      DB_PASSWORD: ${POSTGRES_PASSWORD}
+      JWT_SECRET: ${JWT_SECRET}
+    expose:
+      - "${BACKEND_PORT}"
+    depends_on:
+      postgres:
+        condition: service_healthy
+    networks:
+      - lms_network
+
+  frontend:
+    build:
+      context: ./frontend
+    container_name: lms-frontend
+    restart: unless-stopped
+    environment:
+      FRONTEND_PORT: ${FRONTEND_PORT}
+    expose:
+      - "${FRONTEND_PORT}"
+    depends_on:
+      - backend
+    networks:
+      - lms_network
+
+  nginx:
+    image: nginx:1.27-alpine
+    container_name: lms-nginx
+    restart: unless-stopped
+    environment:
+      FRONTEND_PORT: ${FRONTEND_PORT}
+      BACKEND_PORT: ${BACKEND_PORT}
+    ports:
+      - "${NGINX_PORT}:80"
+    volumes:
+      - ./nginx/default.conf.template:/etc/nginx/templates/default.conf.template:ro
+    depends_on:
+      - frontend
+      - backend
+    networks:
+      - lms_network
+
+volumes:
+  postgres_data:
+
+networks:
+  lms_network:
+    driver: bridge
