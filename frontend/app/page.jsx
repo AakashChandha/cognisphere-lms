@@ -1,5 +1,7 @@
+'use client';
+
 import { useEffect, useState } from 'react';
-import { api } from './services/api.js';
+import { api } from '../lib/api.js';
 
 const initialState = {
   health: null,
@@ -7,7 +9,7 @@ const initialState = {
   students: [],
 };
 
-function App() {
+export default function HomePage() {
   const [dashboard, setDashboard] = useState(initialState);
   const [status, setStatus] = useState('Loading LMS data...');
   const [loginResult, setLoginResult] = useState(null);
@@ -51,18 +53,21 @@ function App() {
     <main className="app-shell">
       <section className="hero">
         <div>
-          <p className="eyebrow">Production-style local stack</p>
+          <p className="eyebrow">Professional Docker stack</p>
           <h1>CGS Learning Management System</h1>
           <p>
-            React is served behind Nginx and talks only to the Express API. The API owns
-            all PostgreSQL access.
+            Next.js runs behind Nginx and talks only to the Express API. The API
+            remains separate so future mobile applications can reuse it.
           </p>
         </div>
         <div className="status-card">
           <span>System status</span>
           <strong>{status}</strong>
           {dashboard.health?.database && (
-            <small>Database checked at {new Date(dashboard.health.database.checkedAt).toLocaleString()}</small>
+            <small>
+              Database checked at{' '}
+              {new Date(dashboard.health.database.checkedAt).toLocaleString()}
+            </small>
           )}
         </div>
       </section>
@@ -104,12 +109,8 @@ function App() {
         <button type="button" onClick={handleDummyLogin}>
           Test Login Endpoint
         </button>
-        {loginResult && (
-          <pre>{JSON.stringify(loginResult, null, 2)}</pre>
-        )}
+        {loginResult && <pre>{JSON.stringify(loginResult, null, 2)}</pre>}
       </section>
     </main>
   );
 }
-
-export default App;

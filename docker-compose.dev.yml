@@ -1,8 +1,7 @@
 services:
   postgres:
     image: postgres:16-alpine
-    container_name: lms-postgres
-    restart: unless-stopped
+    container_name: lms-postgres-dev
     env_file:
       - .env
     environment:
@@ -12,7 +11,7 @@ services:
     ports:
       - "${POSTGRES_PORT}:5432"
     volumes:
-      - postgres_data:/var/lib/postgresql/data
+      - postgres_data_dev:/var/lib/postgresql/data
       - ./postgres/init:/docker-entrypoint-initdb.d:ro
     healthcheck:
       test: ["CMD-SHELL", "pg_isready -U $$POSTGRES_USER -d $$POSTGRES_DB"]
@@ -25,13 +24,12 @@ services:
   backend:
     build:
       context: ./backend
-      dockerfile: Dockerfile.prod
-    container_name: lms-backend
-    restart: unless-stopped
+      dockerfile: Dockerfile.dev
+    container_name: lms-backend-dev
     env_file:
       - .env
     environment:
-      NODE_ENV: production
+      NODE_ENV: development
       BACKEND_PORT: ${BACKEND_PORT}
       DB_HOST: postgres
       DB_PORT: 5432
@@ -39,8 +37,14 @@ services:
       DB_USER: ${POSTGRES_USER}
       DB_PASSWORD: ${POSTGRES_PASSWORD}
       JWT_SECRET: ${JWT_SECRET}
-    expose:
-      - "${BACKEND_PORT}"
+    ports:
+      - "${BACKEND_PORT}:${BACKEND_PORT}"
+    volumes:
+      - ./backend/src:/app/src
+      - ./backend/package.json:/app/package.json:ro
+      - ./backend/package-lock.json:/app/package-lock.json:ro
+      - ./backend/nodemon.json:/app/nodemon.json:ro
+      - backend_node_modules:/app/node_modules
     depends_on:
       postgres:
         condition: service_healthy
@@ -50,15 +54,21 @@ services:
   frontend:
     build:
       context: ./frontend
-      dockerfile: Dockerfile.prod
-    container_name: lms-frontend
-    restart: unless-stopped
+      dockerfile: Dockerfile.dev
+    container_name: lms-frontend-dev
     environment:
-      NODE_ENV: production
+      NODE_ENV: development
       HOSTNAME: 0.0.0.0
       PORT: ${FRONTEND_PORT}
-    expose:
-      - "${FRONTEND_PORT}"
+      INTERNAL_API_URL: http://backend:${BACKEND_PORT}
+      WATCHPACK_POLLING: ${WATCHPACK_POLLING:-true}
+      CHOKIDAR_USEPOLLING: ${CHOKIDAR_USEPOLLING:-true}
+    ports:
+      - "${FRONTEND_PORT}:${FRONTEND_PORT}"
+    volumes:
+      - ./frontend:/app
+      - frontend_node_modules:/app/node_modules
+      - frontend_next_cache:/app/.next
     depends_on:
       - backend
     networks:
@@ -66,8 +76,7 @@ services:
 
   nginx:
     image: nginx:1.27-alpine
-    container_name: lms-nginx
-    restart: unless-stopped
+    container_name: lms-nginx-dev
     environment:
       FRONTEND_PORT: ${FRONTEND_PORT}
       BACKEND_PORT: ${BACKEND_PORT}
@@ -82,7 +91,10 @@ services:
       - lms_network
 
 volumes:
-  postgres_data:
+  postgres_data_dev:
+  backend_node_modules:
+  frontend_node_modules:
+  frontend_next_cache:
 
 networks:
   lms_network:
