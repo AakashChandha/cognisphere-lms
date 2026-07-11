@@ -296,11 +296,15 @@ Example dummy login body:
 
 ## Ubuntu VPS Deployment
 
-On the VPS:
+For the full production architecture, VPS prerequisites, communication flow, and Hostinger steps, see:
+
+**[PROD_DEPLOYMENT.md](./PROD_DEPLOYMENT.md)**
+
+Quick start on the VPS:
 
 ```bash
 git clone <repository>
-cd lms
+cd cognisphere-lms
 cp .env.example .env
 # Edit .env with production secrets
 docker compose up -d --build
