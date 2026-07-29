@@ -4,6 +4,8 @@ node_modules/
 # Build output
 dist/
 build/
+.next/
+out/
 coverage/
 
 # Environment and secrets
@@ -28,3 +30,4 @@ Thumbs.db
 # Docker and local runtime data
 postgres-data/
 *.pid
+backend/storage/

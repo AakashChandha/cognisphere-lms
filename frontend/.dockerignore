@@ -1,6 +1,10 @@
 node_modules
-dist
 npm-debug.log
-Dockerfile
+Dockerfile*
 .dockerignore
 .env
+.env.local
+.git
+.next
+coverage
+*.log
