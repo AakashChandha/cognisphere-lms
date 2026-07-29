@@ -5,3 +5,6 @@ Dockerfile*
 .env
 coverage
 .git
+dist
+storage
+*.log

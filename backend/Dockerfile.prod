@@ -3,7 +3,20 @@ FROM node:22-alpine AS deps
 WORKDIR /app
 
 COPY package*.json ./
-RUN npm ci --omit=dev
+RUN npm ci
+
+COPY prisma ./prisma
+RUN npx prisma generate
+
+FROM node:22-alpine AS builder
+
+WORKDIR /app
+
+COPY --from=deps /app/node_modules ./node_modules
+COPY --from=deps /app/prisma ./prisma
+COPY . .
+
+RUN npm run build
 
 FROM node:22-alpine AS runner
 
@@ -11,9 +24,17 @@ WORKDIR /app
 
 ENV NODE_ENV=production
 
-COPY --from=deps /app/node_modules ./node_modules
-COPY src ./src
+COPY package*.json ./
+RUN npm ci --omit=dev
+
+# The Prisma query engine + generated client produced in `deps` targets this
+# same Alpine/musl base image, so it is safe to copy directly into the slim
+# production `node_modules` instead of re-running `prisma generate` (which
+# would require the `prisma` CLI as a production dependency).
+COPY --from=deps /app/node_modules/.prisma ./node_modules/.prisma
+COPY --from=builder /app/dist ./dist
+COPY --from=builder /app/prisma ./prisma
 
 EXPOSE 5000
 
-CMD ["node", "src/server.js"]
+CMD ["node", "dist/main.js"]

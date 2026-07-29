@@ -2,7 +2,7 @@
 
 This document describes how to deploy the Cognisphere LMS stack to an Ubuntu VPS (for example Hostinger) using the production Docker Compose setup.
 
-Production uses **`docker-compose.yml`** only.  
+Production uses **`docker-compose.yml`** only.
 Do **not** use `docker-compose.dev.yml` on the VPS.
 
 ---
@@ -13,7 +13,7 @@ Do **not** use `docker-compose.dev.yml` on the VPS.
 |-------------|------------|
 | `docker-compose.dev.yml` | `docker-compose.yml` |
 | Source bind mounts + hot reload | Code baked into Docker images |
-| `next dev` + `nodemon` | `next build` standalone + plain `node` |
+| `next dev` + Nest `start:dev` watch mode | `next build` standalone + compiled Nest (`node dist/main.js`) |
 | Extra ports for debugging | Public traffic through Nginx |
 | Fast local iteration | Stable, restartable, VPS-ready |
 
@@ -39,7 +39,7 @@ Internet users
 │       /      │      /api                │
 │      ▼       │         ▼                │
 │  Frontend    │      Backend             │
-│  (Next.js)   │      (Express)           │
+│  (Next.js)   │      (NestJS)            │
 │  port 3000   │      port 5000           │
 │  (internal)  │      (internal)          │
 │              │         │                │
@@ -47,6 +47,10 @@ Internet users
 │              │     PostgreSQL           │
 │              │     port 5432            │
 │              │     volume: postgres_data│
+│                                         │
+│   One-off `migrate` job runs Prisma     │
+│   migrations + seed before `backend`    │
+│   starts accepting traffic.             │
 │                                         │
 │   Docker network: lms_network           │
 └─────────────────────────────────────────┘
@@ -57,8 +61,9 @@ Internet users
 | Container | Built from / image | Role |
 |-----------|--------------------|------|
 | `lms-nginx` | `nginx:1.27-alpine` | Public reverse proxy |
-| `lms-frontend` | `frontend/Dockerfile.prod` | Optimized Next.js app |
-| `lms-backend` | `backend/Dockerfile.prod` | Express API |
+| `lms-frontend` | `frontend/Dockerfile.prod` | Optimized Next.js standalone app |
+| `lms-backend` | `backend/Dockerfile.prod` | NestJS REST API |
+| `lms-migrate` | `backend/Dockerfile.prod` (`deps` stage) | One-off: `prisma migrate deploy` + `prisma db seed`, then exits |
 | `lms-postgres` | `postgres:16-alpine` | Database |
 
 ### Ports
@@ -67,7 +72,7 @@ Internet users
 |------|----------------------|---------|
 | `NGINX_PORT` → container `80` | **Yes** | Users access the app here |
 | Frontend `3000` | No (`expose` only) | Nginx → Next.js |
-| Backend `5000` | No (`expose` only) | Nginx → Express |
+| Backend `5000` | No (`expose` only) | Nginx → NestJS |
 | Postgres `5432` | Mapped via `POSTGRES_PORT` | Prefer firewalling in real prod |
 
 For a hardened production VPS, restrict or remove public access to PostgreSQL so only containers can reach it.
@@ -87,32 +92,32 @@ Browser → http://YOUR_VPS_IP:8080/   (or :80 / https://your-domain)
 
 ### B. UI calls the API
 
-Frontend code uses relative paths:
+Frontend code calls relative paths through its typed API client (`src/lib/api/*`):
 
 ```text
-fetch('/api/courses')
+GET /api/student/courses
 ```
 
 Browser sends the request to the same host as the page:
 
 ```text
-http://YOUR_VPS/api/courses
+http://YOUR_VPS/api/student/courses
   → Nginx location /api/
-  → http://backend:5000/api/courses
-  → Express → PostgreSQL
+  → http://backend:5000/api/student/courses
+  → NestJS controller → service → Prisma → PostgreSQL
   → JSON response back to browser
 ```
 
 ### C. Backend talks to the database
 
 ```text
-Express (backend/src/config/env.js)
-  uses DB_HOST=postgres, DB_NAME, DB_USER, DB_PASSWORD
-  → backend/src/models/db.js (pg Pool)
+NestJS (backend/src/config, backend/src/prisma)
+  reads DATABASE_URL from the environment (validated at boot with Joi)
+  → PrismaService (PrismaClient)
   → Docker service name "postgres" on lms_network
 ```
 
-The React frontend never connects to PostgreSQL.
+The Next.js frontend never connects to PostgreSQL directly.
 
 ### D. Important hostnames
 
@@ -122,20 +127,30 @@ The React frontend never connects to PostgreSQL.
 | `localhost` on the VPS | The VPS host itself, not other containers |
 | Browser URL | Public IP or domain + Nginx port |
 
-In production, Nginx is the router for `/` and `/api`.  
-Do not rely on Next.js development rewrites on the VPS.
+In production, Nginx is the router for `/` and `/api`.
+Do not rely on Next.js development rewrites on the VPS (they still exist as a fallback via `INTERNAL_API_URL`, but Nginx is the intended path for real traffic).
 
-### E. Full request example (students list)
+### E. Full request example (student's course list)
 
 ```text
 1. Browser GET  /
 2. Nginx        → frontend:3000
-3. Next.js      → HTML + JS
-4. Browser GET  /api/students
-5. Nginx        → backend:5000/api/students
-6. Express      route → controller → service
-7. PostgreSQL   query via pg Pool
-8. JSON         → Nginx → Browser → UI
+3. Next.js      → HTML + JS (client hydrates, reads JWT from localStorage)
+4. Browser GET  /api/student/courses  (Authorization: Bearer <accessToken>)
+5. Nginx        → backend:5000/api/student/courses
+6. NestJS       JwtAuthGuard → RolesGuard → controller → service
+7. PostgreSQL   query via Prisma
+8. JSON         → Nginx → Browser → UI (React Query cache)
+```
+
+### F. Startup order
+
+```text
+postgres (healthy)
+   → migrate (prisma migrate deploy && prisma db seed, then exits)
+      → backend (waits for migrate to complete successfully)
+         → frontend
+            → nginx
 ```
 
 ---
@@ -176,8 +191,7 @@ docker --version
 docker compose version
 ```
 
-You do **not** need to install Node.js, Nginx, or PostgreSQL on the host OS.  
-Docker runs them inside containers.
+You do **not** need to install Node.js, Nginx, or PostgreSQL on the host OS. Docker runs them inside containers.
 
 ### Suggested VPS size for this project
 
@@ -214,17 +228,14 @@ Set strong values for at least:
 
 ```env
 POSTGRES_PASSWORD=<strong-password>
-JWT_SECRET=<long-random-secret>
+JWT_ACCESS_SECRET=<long-random-secret>
+JWT_REFRESH_SECRET=<different-long-random-secret>
+MASTER_SEED_EMAIL=<real-admin-email>
+MASTER_SEED_PASSWORD=<strong-password>
 NGINX_PORT=80
 ```
 
-Keep:
-
-```env
-DB_HOST=postgres
-```
-
-`postgres` is the Docker Compose service name. Do not change it to `localhost` inside containers.
+Keep `DATABASE_URL` pointed at the `postgres` Docker Compose service name — do not change it to `localhost` inside containers.
 
 Do **not** commit `.env` to Git.
 
@@ -239,7 +250,10 @@ This will:
 1. Build frontend and backend production images
 2. Pull Nginx and PostgreSQL images
 3. Create the Docker network and Postgres volume
-4. Start all four containers in the background
+4. Run the `migrate` job (Prisma migrations + seed) and wait for it to finish
+5. Start the backend, frontend, and nginx containers in the background
+
+The `migrate` job seeds the roles table and creates the Master account from `MASTER_SEED_EMAIL` / `MASTER_SEED_PASSWORD` **only if the database is empty** — it is safe to re-run `docker compose up -d --build` on subsequent deploys.
 
 ### Step 5 — Verify
 
@@ -255,6 +269,12 @@ If `NGINX_PORT=8080`:
 curl http://localhost:8080/api/health
 ```
 
+Swagger API docs:
+
+```text
+http://YOUR_VPS_IP:8080/api/docs
+```
+
 From your laptop:
 
 ```text
@@ -262,6 +282,8 @@ http://YOUR_VPS_IP
 # or
 http://YOUR_VPS_IP:8080
 ```
+
+Log in with the Master account created from your `.env` values.
 
 ### Step 6 — Domain and HTTPS (recommended)
 
@@ -275,24 +297,28 @@ http://YOUR_VPS_IP:8080
 
 ### Frontend (`frontend/Dockerfile.prod`)
 
-1. Install dependencies (`npm ci`)
-2. Run `next build` with standalone output
-3. Run `node server.js` on port 3000
+Multi-stage build:
+
+1. `deps` — install dependencies (`npm ci`)
+2. `builder` — run `next build` with `output: "standalone"` (see `next.config.ts`)
+3. `runner` — copy only `public/`, `.next/standalone`, and `.next/static`, then run `node server.js` as a non-root user on port 3000
 
 No source bind mounts. The built app is inside the image.
 
 ### Backend (`backend/Dockerfile.prod`)
 
-1. Install production dependencies only
-2. Copy `src/`
-3. Run `node src/server.js`
+Multi-stage build:
 
-No nodemon in production.
+1. `deps` — install all dependencies and run `prisma generate`
+2. `builder` — copy source and run `nest build` (outputs `dist/`)
+3. `runner` — install production dependencies only, copy the generated Prisma client, `dist/`, and `prisma/`, then run `node dist/main.js` on port 5000
+
+The `migrate` service in `docker-compose.yml` reuses the `deps` stage (which has the full `prisma` CLI and schema) purely to run `prisma migrate deploy && prisma db seed` before the API starts.
 
 ### PostgreSQL
 
-- On first start with an empty volume, runs SQL in `postgres/init/`
-- Data persists in Docker volume `postgres_data`
+- Data persists in the named Docker volume `postgres_data`
+- Schema is managed entirely through Prisma migrations (`backend/prisma/migrations`), applied by the `migrate` service — there is no manual SQL init step
 
 ---
 
@@ -305,6 +331,7 @@ No nodemon in production.
 | Deploy new code | `git pull` then `docker compose up -d --build` |
 | View logs | `docker compose logs -f` |
 | Backend logs only | `docker compose logs -f backend` |
+| Re-run migrations/seed manually | `docker compose run --rm migrate` |
 | Reset database (destroys data) | `docker compose down -v` then `docker compose up -d --build` |
 
 ### Connect to PostgreSQL from the VPS
@@ -323,15 +350,18 @@ Use credentials from `.env` if you changed them.
 |----------|---------|
 | `NGINX_PORT` | Host port mapped to Nginx |
 | `FRONTEND_PORT` | Next.js listen port inside Docker |
-| `BACKEND_PORT` | Express listen port inside Docker |
+| `BACKEND_PORT` | NestJS listen port inside Docker |
 | `POSTGRES_PORT` | Host port mapped to Postgres |
-| `POSTGRES_DB` | Database name created by Postgres |
-| `POSTGRES_USER` | Database user |
-| `POSTGRES_PASSWORD` | Database password |
-| `DB_HOST` | Must be `postgres` in Docker |
-| `DB_PORT` | Usually `5432` |
-| `DB_NAME` / `DB_USER` / `DB_PASSWORD` | Used by Express (mapped from Postgres vars in Compose) |
-| `JWT_SECRET` | Secret for auth token generation |
+| `POSTGRES_DB` / `POSTGRES_USER` / `POSTGRES_PASSWORD` | Database credentials |
+| `DATABASE_URL` | Full Prisma connection string (host must be `postgres` in Docker) |
+| `JWT_ACCESS_SECRET` / `JWT_ACCESS_EXPIRES_IN` | Access token signing secret + TTL |
+| `JWT_REFRESH_SECRET` / `JWT_REFRESH_EXPIRES_IN` | Refresh token signing secret + TTL |
+| `CORS_ORIGINS` | Comma-separated allowed browser origins, or `*` |
+| `STORAGE_DRIVER` | `local` today; will support `s3` without code changes |
+| `STORAGE_LOCAL_ROOT` | Filesystem path for uploaded course files |
+| `MAX_FILE_SIZE_BYTES` | Upload size limit enforced by the backend |
+| `THROTTLE_TTL_SECONDS` / `THROTTLE_LIMIT` | Rate limiting window and request cap |
+| `MASTER_SEED_EMAIL` / `MASTER_SEED_PASSWORD` | Master admin account created by the seed script |
 
 ---
 
@@ -341,8 +371,9 @@ Use credentials from `.env` if you changed them.
 - [ ] Git installed
 - [ ] Repository cloned on the VPS
 - [ ] `.env` created with strong secrets
-- [ ] `docker compose up -d --build` succeeds
+- [ ] `docker compose up -d --build` succeeds and `migrate` exits with code 0
 - [ ] `/api/health` responds through Nginx
+- [ ] `/api/docs` (Swagger) is reachable and shows every module
 - [ ] Firewall allows SSH and web ports only
 - [ ] PostgreSQL is not publicly open if avoidable
 - [ ] Domain and HTTPS configured for real traffic
@@ -352,13 +383,12 @@ Use credentials from `.env` if you changed them.
 
 ## 10. Mental Model
 
-**Users talk only to Nginx.  
-Nginx talks to Next.js and Express.  
-Express talks to PostgreSQL.  
+**Users talk only to Nginx.
+Nginx talks to Next.js and NestJS.
+NestJS talks to PostgreSQL through Prisma.
 Everything runs as Docker containers on one Ubuntu VPS.**
 
-No application code changes are required between local production Compose and Hostinger deployment.  
-Clone the repo, set `.env`, then run:
+No application code changes are required between local production Compose and Hostinger deployment. Clone the repo, set `.env`, then run:
 
 ```bash
 docker compose up -d --build

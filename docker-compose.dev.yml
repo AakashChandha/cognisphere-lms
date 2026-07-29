@@ -12,7 +12,6 @@ services:
       - "${POSTGRES_PORT}:5432"
     volumes:
       - postgres_data_dev:/var/lib/postgresql/data
-      - ./postgres/init:/docker-entrypoint-initdb.d:ro
     healthcheck:
       test: ["CMD-SHELL", "pg_isready -U $$POSTGRES_USER -d $$POSTGRES_DB"]
       interval: 10s
@@ -31,20 +30,31 @@ services:
     environment:
       NODE_ENV: development
       BACKEND_PORT: ${BACKEND_PORT}
-      DB_HOST: postgres
-      DB_PORT: 5432
-      DB_NAME: ${POSTGRES_DB}
-      DB_USER: ${POSTGRES_USER}
-      DB_PASSWORD: ${POSTGRES_PASSWORD}
-      JWT_SECRET: ${JWT_SECRET}
+      DATABASE_URL: ${DATABASE_URL}
+      JWT_ACCESS_SECRET: ${JWT_ACCESS_SECRET}
+      JWT_ACCESS_EXPIRES_IN: ${JWT_ACCESS_EXPIRES_IN}
+      JWT_REFRESH_SECRET: ${JWT_REFRESH_SECRET}
+      JWT_REFRESH_EXPIRES_IN: ${JWT_REFRESH_EXPIRES_IN}
+      CORS_ORIGINS: ${CORS_ORIGINS}
+      STORAGE_DRIVER: ${STORAGE_DRIVER}
+      STORAGE_LOCAL_ROOT: ${STORAGE_LOCAL_ROOT}
+      MAX_FILE_SIZE_BYTES: ${MAX_FILE_SIZE_BYTES}
+      THROTTLE_TTL_SECONDS: ${THROTTLE_TTL_SECONDS}
+      THROTTLE_LIMIT: ${THROTTLE_LIMIT}
+      MASTER_SEED_EMAIL: ${MASTER_SEED_EMAIL}
+      MASTER_SEED_PASSWORD: ${MASTER_SEED_PASSWORD}
     ports:
       - "${BACKEND_PORT}:${BACKEND_PORT}"
     volumes:
       - ./backend/src:/app/src
+      - ./backend/prisma:/app/prisma
       - ./backend/package.json:/app/package.json:ro
       - ./backend/package-lock.json:/app/package-lock.json:ro
-      - ./backend/nodemon.json:/app/nodemon.json:ro
+      - ./backend/tsconfig.json:/app/tsconfig.json:ro
+      - ./backend/tsconfig.build.json:/app/tsconfig.build.json:ro
+      - ./backend/nest-cli.json:/app/nest-cli.json:ro
       - backend_node_modules:/app/node_modules
+      - backend_storage_dev:/app/storage
     depends_on:
       postgres:
         condition: service_healthy
@@ -93,6 +103,7 @@ services:
 volumes:
   postgres_data_dev:
   backend_node_modules:
+  backend_storage_dev:
   frontend_node_modules:
   frontend_next_cache:
 

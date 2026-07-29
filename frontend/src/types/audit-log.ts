@@ -1,0 +1,48 @@
+export enum AuditAction {
+  USER_CREATED = "USER_CREATED",
+  USER_UPDATED = "USER_UPDATED",
+  USER_DELETED = "USER_DELETED",
+  USER_ENABLED = "USER_ENABLED",
+  USER_DISABLED = "USER_DISABLED",
+  USER_PASSWORD_RESET = "USER_PASSWORD_RESET",
+  AUTH_LOGIN = "AUTH_LOGIN",
+  AUTH_LOGOUT = "AUTH_LOGOUT",
+  AUTH_PASSWORD_CHANGED = "AUTH_PASSWORD_CHANGED",
+  AUTH_TOKEN_REFRESHED = "AUTH_TOKEN_REFRESHED",
+  COURSE_CREATED = "COURSE_CREATED",
+  COURSE_UPDATED = "COURSE_UPDATED",
+  COURSE_DELETED = "COURSE_DELETED",
+  COURSE_PUBLISHED = "COURSE_PUBLISHED",
+  COURSE_ARCHIVED = "COURSE_ARCHIVED",
+  LESSON_CREATED = "LESSON_CREATED",
+  LESSON_UPDATED = "LESSON_UPDATED",
+  LESSON_DELETED = "LESSON_DELETED",
+  FILE_UPLOADED = "FILE_UPLOADED",
+  FILE_DELETED = "FILE_DELETED",
+  ANNOUNCEMENT_CREATED = "ANNOUNCEMENT_CREATED",
+  ANNOUNCEMENT_UPDATED = "ANNOUNCEMENT_UPDATED",
+  ANNOUNCEMENT_DELETED = "ANNOUNCEMENT_DELETED",
+  ENROLLMENT_CREATED = "ENROLLMENT_CREATED",
+  ENROLLMENT_REMOVED = "ENROLLMENT_REMOVED",
+}
+
+export interface AuditLog {
+  id: string;
+  actorId: string | null;
+  actorName: string | null;
+  action: AuditAction;
+  entityType: string;
+  entityId: string | null;
+  metadata: Record<string, unknown> | null;
+  ipAddress: string | null;
+  createdAt: string;
+}
+
+export interface QueryAuditLogParams {
+  page?: number;
+  pageSize?: number;
+  search?: string;
+  action?: AuditAction;
+  actorId?: string;
+  entityType?: string;
+}

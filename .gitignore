@@ -30,3 +30,4 @@ Thumbs.db
 # Docker and local runtime data
 postgres-data/
 *.pid
+backend/storage/

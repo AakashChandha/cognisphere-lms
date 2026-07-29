@@ -1,0 +1,282 @@
+// CGS LMS - Prisma schema
+// Normalized relational schema for the production LMS.
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+// ---------------------------------------------------------------------------
+// Enums
+// ---------------------------------------------------------------------------
+
+enum RoleName {
+  MASTER
+  TUTOR
+  STUDENT
+}
+
+enum CourseStatus {
+  DRAFT
+  PUBLISHED
+  ARCHIVED
+}
+
+enum AnnouncementAudience {
+  ALL
+  STUDENTS
+  TUTORS
+}
+
+enum AuditAction {
+  USER_CREATED
+  USER_UPDATED
+  USER_DELETED
+  USER_ENABLED
+  USER_DISABLED
+  USER_PASSWORD_RESET
+  AUTH_LOGIN
+  AUTH_LOGOUT
+  AUTH_PASSWORD_CHANGED
+  AUTH_TOKEN_REFRESHED
+  COURSE_CREATED
+  COURSE_UPDATED
+  COURSE_DELETED
+  COURSE_PUBLISHED
+  COURSE_ARCHIVED
+  LESSON_CREATED
+  LESSON_UPDATED
+  LESSON_DELETED
+  FILE_UPLOADED
+  FILE_DELETED
+  ANNOUNCEMENT_CREATED
+  ANNOUNCEMENT_UPDATED
+  ANNOUNCEMENT_DELETED
+  ENROLLMENT_CREATED
+  ENROLLMENT_REMOVED
+}
+
+// ---------------------------------------------------------------------------
+// Identity & Access
+// ---------------------------------------------------------------------------
+
+model User {
+  id           String   @id @default(uuid())
+  email        String   @unique
+  passwordHash String   @map("password_hash")
+  firstName    String   @map("first_name")
+  lastName     String   @map("last_name")
+  avatarUrl    String?  @map("avatar_url")
+  isActive     Boolean  @default(true) @map("is_active")
+  createdAt    DateTime @default(now()) @map("created_at")
+  updatedAt    DateTime @updatedAt @map("updated_at")
+
+  userRoles          UserRole[]
+  student            Student?
+  tutor              Tutor?
+  refreshTokens      RefreshToken[]
+  auditLogs          AuditLog[]        @relation("AuditActor")
+  authoredAnnouncements Announcement[] @relation("AnnouncementAuthor")
+  uploadedFiles      CourseFile[]      @relation("FileUploader")
+
+  @@map("users")
+  @@index([isActive])
+}
+
+model Role {
+  id          String   @id @default(uuid())
+  name        RoleName @unique
+  description String?
+  createdAt   DateTime @default(now()) @map("created_at")
+
+  userRoles UserRole[]
+
+  @@map("roles")
+}
+
+model UserRole {
+  id     String @id @default(uuid())
+  userId String @map("user_id")
+  roleId String @map("role_id")
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+  role Role @relation(fields: [roleId], references: [id], onDelete: Cascade)
+
+  @@unique([userId, roleId])
+  @@map("user_roles")
+  @@index([roleId])
+}
+
+model RefreshToken {
+  id        String    @id @default(uuid())
+  userId    String    @map("user_id")
+  tokenHash String    @map("token_hash")
+  expiresAt DateTime  @map("expires_at")
+  revokedAt DateTime? @map("revoked_at")
+  createdAt DateTime  @default(now()) @map("created_at")
+  createdByIp String? @map("created_by_ip")
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@map("refresh_tokens")
+  @@index([userId])
+}
+
+// ---------------------------------------------------------------------------
+// People
+// ---------------------------------------------------------------------------
+
+model Student {
+  id        String   @id @default(uuid())
+  userId    String   @unique @map("user_id")
+  phone     String?
+  bio       String?
+  createdAt DateTime @default(now()) @map("created_at")
+  updatedAt DateTime @updatedAt @map("updated_at")
+
+  user        User         @relation(fields: [userId], references: [id], onDelete: Cascade)
+  enrollments Enrollment[]
+
+  @@map("students")
+}
+
+model Tutor {
+  id        String   @id @default(uuid())
+  userId    String   @unique @map("user_id")
+  phone     String?
+  bio       String?
+  expertise String?
+  createdAt DateTime @default(now()) @map("created_at")
+  updatedAt DateTime @updatedAt @map("updated_at")
+
+  user    User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  courses Course[]
+
+  @@map("tutors")
+}
+
+// ---------------------------------------------------------------------------
+// Courses
+// ---------------------------------------------------------------------------
+
+model Course {
+  id            String       @id @default(uuid())
+  tutorId       String       @map("tutor_id")
+  title         String
+  slug          String       @unique
+  description   String
+  status        CourseStatus @default(DRAFT)
+  thumbnailUrl  String?      @map("thumbnail_url")
+  publishedAt   DateTime?    @map("published_at")
+  archivedAt    DateTime?    @map("archived_at")
+  createdAt     DateTime     @default(now()) @map("created_at")
+  updatedAt     DateTime     @updatedAt @map("updated_at")
+
+  tutor         Tutor          @relation(fields: [tutorId], references: [id], onDelete: Cascade)
+  lessons       Lesson[]
+  files         CourseFile[]
+  enrollments   Enrollment[]
+  announcements Announcement[]
+
+  @@map("courses")
+  @@index([tutorId])
+  @@index([status])
+}
+
+model Lesson {
+  id          String   @id @default(uuid())
+  courseId    String   @map("course_id")
+  title       String
+  content     String
+  orderIndex  Int      @default(0) @map("order_index")
+  createdAt   DateTime @default(now()) @map("created_at")
+  updatedAt   DateTime @updatedAt @map("updated_at")
+
+  course Course       @relation(fields: [courseId], references: [id], onDelete: Cascade)
+  files  CourseFile[]
+
+  @@map("lessons")
+  @@index([courseId])
+}
+
+model CourseFile {
+  id           String   @id @default(uuid())
+  courseId     String   @map("course_id")
+  lessonId     String?  @map("lesson_id")
+  uploadedById String   @map("uploaded_by_id")
+  originalName String   @map("original_name")
+  storageKey   String   @map("storage_key")
+  mimeType     String   @map("mime_type")
+  sizeBytes    Int      @map("size_bytes")
+  createdAt    DateTime @default(now()) @map("created_at")
+
+  course     Course @relation(fields: [courseId], references: [id], onDelete: Cascade)
+  lesson     Lesson? @relation(fields: [lessonId], references: [id], onDelete: SetNull)
+  uploadedBy User    @relation("FileUploader", fields: [uploadedById], references: [id])
+
+  @@map("course_files")
+  @@index([courseId])
+  @@index([lessonId])
+}
+
+model Enrollment {
+  id         String   @id @default(uuid())
+  studentId  String   @map("student_id")
+  courseId   String   @map("course_id")
+  enrolledAt DateTime @default(now()) @map("enrolled_at")
+
+  student Student @relation(fields: [studentId], references: [id], onDelete: Cascade)
+  course  Course  @relation(fields: [courseId], references: [id], onDelete: Cascade)
+
+  @@unique([studentId, courseId])
+  @@map("enrollments")
+  @@index([courseId])
+}
+
+// ---------------------------------------------------------------------------
+// Communication
+// ---------------------------------------------------------------------------
+
+model Announcement {
+  id        String               @id @default(uuid())
+  authorId  String               @map("author_id")
+  courseId  String?              @map("course_id")
+  title     String
+  content   String
+  audience  AnnouncementAudience @default(ALL)
+  createdAt DateTime             @default(now()) @map("created_at")
+  updatedAt DateTime             @updatedAt @map("updated_at")
+
+  author User    @relation("AnnouncementAuthor", fields: [authorId], references: [id])
+  course Course? @relation(fields: [courseId], references: [id], onDelete: Cascade)
+
+  @@map("announcements")
+  @@index([audience])
+  @@index([courseId])
+}
+
+// ---------------------------------------------------------------------------
+// Auditing
+// ---------------------------------------------------------------------------
+
+model AuditLog {
+  id         String      @id @default(uuid())
+  actorId    String?     @map("actor_id")
+  action     AuditAction
+  entityType String      @map("entity_type")
+  entityId   String?     @map("entity_id")
+  metadata   Json?
+  ipAddress  String?     @map("ip_address")
+  createdAt  DateTime    @default(now()) @map("created_at")
+
+  actor User? @relation("AuditActor", fields: [actorId], references: [id], onDelete: SetNull)
+
+  @@map("audit_logs")
+  @@index([actorId])
+  @@index([action])
+  @@index([createdAt])
+}

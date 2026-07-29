@@ -13,12 +13,34 @@ services:
       - "${POSTGRES_PORT}:5432"
     volumes:
       - postgres_data:/var/lib/postgresql/data
-      - ./postgres/init:/docker-entrypoint-initdb.d:ro
     healthcheck:
       test: ["CMD-SHELL", "pg_isready -U $$POSTGRES_USER -d $$POSTGRES_DB"]
       interval: 10s
       timeout: 5s
       retries: 5
+    networks:
+      - lms_network
+
+  # One-off migration runner. Uses the `deps` build stage (full node_modules
+  # + Prisma CLI + schema, no compiled app) purely to apply committed
+  # migrations and seed baseline data before the API starts accepting
+  # traffic. Exits after completion; `backend` waits for it to succeed.
+  migrate:
+    build:
+      context: ./backend
+      dockerfile: Dockerfile.prod
+      target: deps
+    container_name: lms-migrate
+    env_file:
+      - .env
+    environment:
+      DATABASE_URL: ${DATABASE_URL}
+      MASTER_SEED_EMAIL: ${MASTER_SEED_EMAIL}
+      MASTER_SEED_PASSWORD: ${MASTER_SEED_PASSWORD}
+    command: ["sh", "-c", "npx prisma migrate deploy && npx prisma db seed"]
+    depends_on:
+      postgres:
+        condition: service_healthy
     networks:
       - lms_network
 
@@ -33,17 +55,28 @@ services:
     environment:
       NODE_ENV: production
       BACKEND_PORT: ${BACKEND_PORT}
-      DB_HOST: postgres
-      DB_PORT: 5432
-      DB_NAME: ${POSTGRES_DB}
-      DB_USER: ${POSTGRES_USER}
-      DB_PASSWORD: ${POSTGRES_PASSWORD}
-      JWT_SECRET: ${JWT_SECRET}
+      DATABASE_URL: ${DATABASE_URL}
+      JWT_ACCESS_SECRET: ${JWT_ACCESS_SECRET}
+      JWT_ACCESS_EXPIRES_IN: ${JWT_ACCESS_EXPIRES_IN}
+      JWT_REFRESH_SECRET: ${JWT_REFRESH_SECRET}
+      JWT_REFRESH_EXPIRES_IN: ${JWT_REFRESH_EXPIRES_IN}
+      CORS_ORIGINS: ${CORS_ORIGINS}
+      STORAGE_DRIVER: ${STORAGE_DRIVER}
+      STORAGE_LOCAL_ROOT: ${STORAGE_LOCAL_ROOT}
+      MAX_FILE_SIZE_BYTES: ${MAX_FILE_SIZE_BYTES}
+      THROTTLE_TTL_SECONDS: ${THROTTLE_TTL_SECONDS}
+      THROTTLE_LIMIT: ${THROTTLE_LIMIT}
+      MASTER_SEED_EMAIL: ${MASTER_SEED_EMAIL}
+      MASTER_SEED_PASSWORD: ${MASTER_SEED_PASSWORD}
     expose:
       - "${BACKEND_PORT}"
+    volumes:
+      - backend_storage:/app/storage
     depends_on:
       postgres:
         condition: service_healthy
+      migrate:
+        condition: service_completed_successfully
     networks:
       - lms_network
 
@@ -57,6 +90,7 @@ services:
       NODE_ENV: production
       HOSTNAME: 0.0.0.0
       PORT: ${FRONTEND_PORT}
+      INTERNAL_API_URL: http://backend:${BACKEND_PORT}
     expose:
       - "${FRONTEND_PORT}"
     depends_on:
@@ -83,6 +117,7 @@ services:
 
 volumes:
   postgres_data:
+  backend_storage:
 
 networks:
   lms_network:
