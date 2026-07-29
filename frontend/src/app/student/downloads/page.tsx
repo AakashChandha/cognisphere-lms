@@ -1,34 +1,27 @@
 "use client";
 
+import * as React from "react";
 import { useQuery } from "@tanstack/react-query";
-import { FileText, Download as DownloadIcon } from "lucide-react";
-import { toast } from "sonner";
+import { FileText } from "lucide-react";
 import { PageHeader } from "@/components/shared/page-header";
 import { SearchInput } from "@/components/shared/search-input";
 import { PaginationControls } from "@/components/shared/pagination-controls";
 import { DataTable, type DataTableColumn } from "@/components/shared/data-table";
-import { Button } from "@/components/ui/button";
+import { FileViewerDialog } from "@/components/shared/file-viewer-dialog";
+import { StudentFileActions } from "@/components/shared/student-file-actions";
 import { usePaginationState } from "@/hooks/use-pagination-state";
-import { studentFilesApi, downloadFile } from "@/lib/api/course-files.api";
+import { studentFilesApi } from "@/lib/api/course-files.api";
 import { formatDate, formatFileSize } from "@/lib/utils/format";
 import type { CourseFile } from "@/types/course-file";
-import { ApiError } from "@/types/api";
 
-export default function StudentDownloadsPage() {
+export default function StudentMaterialsPage() {
   const { page, pageSize, search, setPage, setPageSize, setSearch } = usePaginationState();
+  const [viewerFile, setViewerFile] = React.useState<CourseFile | null>(null);
 
   const { data, isLoading, isError, refetch } = useQuery({
     queryKey: ["student", "files", { page, pageSize, search }],
     queryFn: () => studentFilesApi.listAll({ page, pageSize, search }),
   });
-
-  async function handleDownload(file: CourseFile) {
-    try {
-      await downloadFile(file.downloadUrl, file.originalName);
-    } catch (error) {
-      toast.error(error instanceof ApiError ? error.message : "Failed to download file");
-    }
-  }
 
   const columns: DataTableColumn<CourseFile>[] = [
     {
@@ -47,19 +40,16 @@ export default function StudentDownloadsPage() {
     {
       id: "actions",
       header: "",
-      headerClassName: "w-24",
+      headerClassName: "w-48",
       cell: (file) => (
-        <Button size="sm" variant="outline" onClick={() => void handleDownload(file)}>
-          <DownloadIcon className="size-3.5" />
-          Download
-        </Button>
+        <StudentFileActions file={file} onView={setViewerFile} />
       ),
     },
   ];
 
   return (
     <div className="space-y-6">
-      <PageHeader title="Downloads" description="All course materials across your enrolled courses." />
+      <PageHeader title="Materials" description="View course materials across your enrolled courses." />
       <SearchInput value={search} onChange={setSearch} placeholder="Search files..." />
       <DataTable
         columns={columns}
@@ -71,6 +61,12 @@ export default function StudentDownloadsPage() {
         emptyTitle="No files found"
       />
       {data ? <PaginationControls meta={data.meta} onPageChange={setPage} onPageSizeChange={setPageSize} /> : null}
+
+      <FileViewerDialog
+        file={viewerFile}
+        open={!!viewerFile}
+        onOpenChange={(open) => !open && setViewerFile(null)}
+      />
     </div>
   );
 }

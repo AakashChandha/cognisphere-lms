@@ -3,7 +3,7 @@
 import * as React from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { toast } from "sonner";
-import { FileText, Trash2, Download as DownloadIcon } from "lucide-react";
+import { FileText, Trash2 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Skeleton } from "@/components/ui/skeleton";
 import {
@@ -17,7 +17,7 @@ import { EmptyState } from "@/components/shared/empty-state";
 import { ErrorState } from "@/components/shared/error-state";
 import { ConfirmDialog } from "@/components/shared/confirm-dialog";
 import { FileUpload } from "@/components/shared/file-upload";
-import { tutorFilesApi, downloadFile } from "@/lib/api/course-files.api";
+import { tutorFilesApi } from "@/lib/api/course-files.api";
 import { tutorLessonsApi } from "@/lib/api/lessons.api";
 import { formatDate, formatFileSize } from "@/lib/utils/format";
 import type { CourseFile } from "@/types/course-file";
@@ -74,14 +74,6 @@ export function CourseFilesManager({ courseId }: { courseId: string }) {
     onError: (error) => toast.error(error instanceof ApiError ? error.message : "Failed to delete file"),
   });
 
-  async function handleDownload(file: CourseFile) {
-    try {
-      await downloadFile(file.downloadUrl, file.originalName);
-    } catch (error) {
-      toast.error(error instanceof ApiError ? error.message : "Failed to download file");
-    }
-  }
-
   return (
     <div className="space-y-4">
       <div className="space-y-3 rounded-lg border border-border p-4">
@@ -131,9 +123,6 @@ export function CourseFilesManager({ courseId }: { courseId: string }) {
                 </div>
               </div>
               <div className="flex items-center gap-1">
-                <Button size="icon-sm" variant="ghost" onClick={() => void handleDownload(file)} aria-label="Download">
-                  <DownloadIcon className="size-4" />
-                </Button>
                 <Button
                   size="icon-sm"
                   variant="ghost"

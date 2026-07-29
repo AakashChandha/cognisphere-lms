@@ -29,9 +29,21 @@ export class StudentFilesController {
   }
 
   @Get(':id')
-  @ApiOperation({ summary: 'Download a course material file' })
+  @ApiOperation({
+    summary: 'Stream a course material file (inline for in-browser PDF/PPTX preview; also used for download)',
+  })
   async download(@Param('id') id: string, @CurrentUser() user: AuthenticatedUser, @Res() res: Response) {
     const file = await this.filesService.getForStudentDownload(user.id, id);
-    res.download(this.localStorage.resolveAbsolutePath(file.storageKey), file.originalName);
+    const absolutePath = this.localStorage.resolveAbsolutePath(file.storageKey);
+
+    // `inline` lets the browser PDF viewer (and our frontend blob preview)
+    // render the file; the student UI still forces a save via `<a download>`
+    // when the user clicks Download.
+    res.setHeader('Content-Type', file.mimeType || 'application/octet-stream');
+    res.setHeader(
+      'Content-Disposition',
+      `inline; filename="${encodeURIComponent(file.originalName)}"`,
+    );
+    return res.sendFile(absolutePath);
   }
 }

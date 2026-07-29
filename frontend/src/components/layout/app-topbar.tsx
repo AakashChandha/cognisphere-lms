@@ -15,6 +15,7 @@ import {
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
 import { ThemeToggle } from "@/components/layout/theme-toggle";
+import { SidebarToggleButton } from "@/components/layout/sidebar-toggle-button";
 import { AppSidebarNav } from "@/components/layout/app-sidebar-nav";
 import { useAuth } from "@/lib/auth/auth-context";
 import { ROLE_LABEL } from "@/lib/constants/roles";
@@ -22,7 +23,19 @@ import { NAV_ITEMS } from "@/lib/constants/nav";
 import { getInitials } from "@/lib/utils/format";
 import type { AppRole } from "@/types/auth";
 
-export function AppTopbar({ role, profileHref }: { role: AppRole; profileHref: string }) {
+interface AppTopbarProps {
+  role: AppRole;
+  profileHref: string;
+  sidebarCollapsed: boolean;
+  onToggleSidebar: () => void;
+}
+
+export function AppTopbar({
+  role,
+  profileHref,
+  sidebarCollapsed,
+  onToggleSidebar,
+}: AppTopbarProps) {
   const router = useRouter();
   const { user, logout } = useAuth();
   const [mobileNavOpen, setMobileNavOpen] = React.useState(false);
@@ -31,6 +44,8 @@ export function AppTopbar({ role, profileHref }: { role: AppRole; profileHref: s
 
   return (
     <header className="sticky top-0 z-30 flex h-16 items-center gap-3 border-b border-border bg-background/95 px-4 backdrop-blur supports-backdrop-filter:bg-background/75 sm:px-6">
+      <SidebarToggleButton collapsed={sidebarCollapsed} onToggle={onToggleSidebar} />
+
       <Sheet open={mobileNavOpen} onOpenChange={setMobileNavOpen}>
         <Button
           variant="ghost"

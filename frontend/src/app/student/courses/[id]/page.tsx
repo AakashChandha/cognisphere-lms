@@ -4,11 +4,13 @@ import * as React from "react";
 import Link from "next/link";
 import { useParams, useRouter } from "next/navigation";
 import { useQuery } from "@tanstack/react-query";
-import { ArrowLeft, BookOpen, FileText, Layers, Users, Download as DownloadIcon } from "lucide-react";
+import { ArrowLeft, BookOpen, FileText, Layers, Users } from "lucide-react";
 import { PageHeader } from "@/components/shared/page-header";
 import { EmptyState } from "@/components/shared/empty-state";
 import { ErrorState } from "@/components/shared/error-state";
 import { FullPageSpinner } from "@/components/shared/full-page-spinner";
+import { FileViewerDialog } from "@/components/shared/file-viewer-dialog";
+import { StudentFileActions } from "@/components/shared/student-file-actions";
 import { Card, CardContent } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Skeleton } from "@/components/ui/skeleton";
@@ -16,15 +18,15 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { CourseStatusBadge } from "@/components/shared/status-badge";
 import { studentCoursesApi } from "@/lib/api/courses.api";
 import { studentLessonsApi } from "@/lib/api/lessons.api";
-import { studentFilesApi, downloadFile } from "@/lib/api/course-files.api";
+import { studentFilesApi } from "@/lib/api/course-files.api";
 import { formatFileSize } from "@/lib/utils/format";
-import { toast } from "sonner";
-import { ApiError } from "@/types/api";
+import type { CourseFile } from "@/types/course-file";
 
 export default function StudentCourseDetailPage() {
   const params = useParams<{ id: string }>();
   const router = useRouter();
   const courseId = params.id;
+  const [viewerFile, setViewerFile] = React.useState<CourseFile | null>(null);
 
   const courseQuery = useQuery({
     queryKey: ["student", "courses", courseId],
@@ -42,14 +44,6 @@ export default function StudentCourseDetailPage() {
     queryFn: () => studentFilesApi.listForCourse(courseId, { pageSize: 50 }),
     enabled: !!courseQuery.data,
   });
-
-  async function handleDownload(url: string, filename: string) {
-    try {
-      await downloadFile(url, filename);
-    } catch (error) {
-      toast.error(error instanceof ApiError ? error.message : "Failed to download file");
-    }
-  }
 
   if (courseQuery.isLoading) return <FullPageSpinner />;
   if (courseQuery.isError) {
@@ -140,19 +134,21 @@ export default function StudentCourseDetailPage() {
                     <p className="text-xs text-muted-foreground">{formatFileSize(file.sizeBytes)}</p>
                   </div>
                 </div>
-                <Button
-                  size="sm"
-                  variant="outline"
-                  onClick={() => void handleDownload(file.downloadUrl, file.originalName)}
-                >
-                  <DownloadIcon className="size-3.5" />
-                  Download
-                </Button>
+                <StudentFileActions
+                  file={file}
+                  onView={setViewerFile}
+                />
               </div>
             ))
           )}
         </TabsContent>
       </Tabs>
+
+      <FileViewerDialog
+        file={viewerFile}
+        open={!!viewerFile}
+        onOpenChange={(open) => !open && setViewerFile(null)}
+      />
     </div>
   );
 }

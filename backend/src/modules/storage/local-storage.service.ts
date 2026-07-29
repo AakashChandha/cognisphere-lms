@@ -1,6 +1,6 @@
 import { randomUUID } from 'crypto';
 import { promises as fs } from 'fs';
-import { join, extname } from 'path';
+import { join, extname, resolve } from 'path';
 import { Injectable, Logger } from '@nestjs/common';
 import { AppConfigService } from '../../config/app-config.service';
 import { IStorageService, StoredFileRef, UploadFileInput } from './storage.interface';
@@ -16,7 +16,10 @@ export class LocalStorageService implements IStorageService {
   private readonly root: string;
 
   constructor(private readonly config: AppConfigService) {
-    this.root = this.config.storage.localRoot;
+    // Express `res.sendFile` requires an absolute path. Resolve relative
+    // roots (e.g. `storage`) against the process working directory so
+    // Docker (`/app/storage`) and local runs both work.
+    this.root = resolve(this.config.storage.localRoot);
   }
 
   async upload(input: UploadFileInput): Promise<StoredFileRef> {

@@ -8,7 +8,7 @@ import {
   UserCircle,
   ScrollText,
   Shield,
-  Download,
+  Files,
 } from "lucide-react";
 import { AppRole } from "@/types/auth";
 
@@ -39,7 +39,7 @@ export const NAV_ITEMS: Record<AppRole, NavItem[]> = {
   [AppRole.STUDENT]: [
     { label: "Dashboard", href: "/student/dashboard", icon: LayoutDashboard },
     { label: "My Courses", href: "/student/courses", icon: BookOpen },
-    { label: "Downloads", href: "/student/downloads", icon: Download },
+    { label: "Materials", href: "/student/downloads", icon: Files },
     { label: "Announcements", href: "/student/announcements", icon: Megaphone },
     { label: "Profile", href: "/student/profile", icon: UserCircle },
   ],

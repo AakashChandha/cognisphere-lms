@@ -3,25 +3,19 @@ import { cleanParams } from "./query-string";
 import type { ApiEnvelope, PaginationQuery } from "@/types/api";
 import type { CourseFile } from "@/types/course-file";
 
-/**
- * File downloads require the `Authorization` header, which a plain `<a>`
- * navigation cannot send (tokens live in localStorage, not cookies). This
- * fetches the file as a blob through the authenticated axios client and
- * triggers a native save via a temporary object URL.
- */
-export async function downloadFile(url: string, filename: string): Promise<void> {
+function toRelativeApiUrl(url: string): string {
   // `apiClient`'s baseURL already includes `/api`; strip it from URLs returned
   // by the backend (e.g. `CourseFile.downloadUrl`) to avoid a doubled prefix.
-  const relativeUrl = url.startsWith("/api/") ? url.slice(4) : url;
-  const response = await apiClient.get<Blob>(relativeUrl, { responseType: "blob" });
-  const objectUrl = window.URL.createObjectURL(response.data);
-  const link = document.createElement("a");
-  link.href = objectUrl;
-  link.download = filename;
-  document.body.appendChild(link);
-  link.click();
-  link.remove();
-  window.URL.revokeObjectURL(objectUrl);
+  return url.startsWith("/api/") ? url.slice(4) : url;
+}
+
+/** Authenticated fetch of a course file as a Blob for in-browser preview. */
+export async function fetchFileBlob(url: string): Promise<Blob> {
+  const response = await apiClient.get<Blob>(toRelativeApiUrl(url), {
+    responseType: "blob",
+    timeout: 120_000,
+  });
+  return response.data;
 }
 
 export const tutorFilesApi = {
