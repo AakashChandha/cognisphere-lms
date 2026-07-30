@@ -237,6 +237,8 @@ NGINX_PORT=80
 
 Keep `DATABASE_URL` pointed at the `postgres` Docker Compose service name — do not change it to `localhost` inside containers.
 
+`DATABASE_URL` must use the **same** username/password as `POSTGRES_USER` / `POSTGRES_PASSWORD`. If the password contains special characters (`@`, `#`, `%`, `/`, `:`, `?`), URL-encode them in `DATABASE_URL` (for example `@` → `%40`). Avoid `#` in `.env` values — everything after `#` is treated as a comment.
+
 Do **not** commit `.env` to Git.
 
 ### Step 4 — Start the production stack
@@ -253,7 +255,31 @@ This will:
 4. Run the `migrate` job (Prisma migrations + seed) and wait for it to finish
 5. Start the backend, frontend, and nginx containers in the background
 
-The `migrate` job seeds the roles table and creates the Master account from `MASTER_SEED_EMAIL` / `MASTER_SEED_PASSWORD` **only if the database is empty** — it is safe to re-run `docker compose up -d --build` on subsequent deploys.
+The `migrate` job seeds the roles table and creates the Master account from `MASTER_SEED_EMAIL` / `MASTER_SEED_PASSWORD` **only if those accounts do not already exist** — it is safe to re-run `docker compose up -d --build` on subsequent deploys.
+
+#### If `migrate` exits with code 1
+
+Inspect the real error first:
+
+```bash
+docker compose logs migrate
+docker compose run --rm migrate
+```
+
+Common causes:
+
+| Symptom | Fix |
+|---------|-----|
+| `Can't reach database server at localhost` | Set `DATABASE_URL` host to `postgres` (Compose service name), not `localhost` |
+| `Authentication failed` / `password authentication failed` | Make `DATABASE_URL` credentials match `POSTGRES_USER` / `POSTGRES_PASSWORD` exactly; URL-encode special characters |
+| `P1001` / connection refused briefly | Postgres was not healthy yet — re-run `docker compose up -d` |
+| OpenSSL / query engine errors | Rebuild after pulling the latest `backend/Dockerfile.prod` (installs `openssl` on Alpine) |
+
+After fixing `.env` or code:
+
+```bash
+docker compose up -d --build
+```
 
 ### Step 5 — Verify
 
