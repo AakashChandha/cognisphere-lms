@@ -395,3 +395,15 @@ docker compose up -d --build
 ```
 
 No application code changes are required. Set strong values in `.env` and configure firewall, DNS, and TLS in front of the Nginx port before real production traffic.
+
+
+MASTER_SEED_EMAIL=master@cgslms.local
+MASTER_SEED_PASSWORD=master123
+
+student.demo@cgslms.local
+Student@12345
+
+tutor.demo@cgslms.local
+Tutor@12345
+
+http://43.204.58.194/
