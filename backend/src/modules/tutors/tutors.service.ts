@@ -62,7 +62,7 @@ export class TutorsService {
   async getDashboard(userId: string): Promise<TutorDashboardDto> {
     const tutor = await this.findByUserIdOrThrow(userId);
 
-    const [courseCounts, totalLessons, totalFiles, distinctStudents] = await Promise.all([
+    const [courseCounts, totalLessons, totalFiles, distinctStudents, courses, recentEnrollments] = await Promise.all([
       this.prisma.course.groupBy({
         by: ['status'],
         where: { tutorId: tutor.id },
@@ -75,10 +75,30 @@ export class TutorsService {
         distinct: ['studentId'],
         select: { studentId: true },
       }),
+      this.prisma.course.findMany({
+        where: { tutorId: tutor.id },
+        include: { _count: { select: { lessons: true, enrollments: true } } },
+        orderBy: { updatedAt: 'desc' },
+      }),
+      this.prisma.enrollment.findMany({
+        where: { course: { tutorId: tutor.id } },
+        include: { student: { include: { user: true } }, course: { select: { id: true, title: true } } },
+        orderBy: { enrolledAt: 'desc' },
+        take: 5,
+      }),
     ]);
 
     const countByStatus = (status: CourseStatus) =>
       courseCounts.find((c) => c.status === status)?._count ?? 0;
+
+    const summarise = (c: (typeof courses)[number]) => ({
+      id: c.id,
+      title: c.title,
+      status: c.status,
+      lessonsCount: c._count.lessons,
+      enrollmentsCount: c._count.enrollments,
+      updatedAt: c.updatedAt,
+    });
 
     return {
       totalCourses: tutor._count.courses,
@@ -88,6 +108,21 @@ export class TutorsService {
       totalStudents: distinctStudents.length,
       totalLessons,
       totalFiles,
+      needsAttention: courses
+        .filter(
+          (c) =>
+            c.status === CourseStatus.DRAFT ||
+            (c.status === CourseStatus.PUBLISHED && c._count.enrollments === 0),
+        )
+        .slice(0, 5)
+        .map(summarise),
+      recentCourses: courses.slice(0, 5).map(summarise),
+      recentEnrollments: recentEnrollments.map((e) => ({
+        studentName: `${e.student.user.firstName} ${e.student.user.lastName}`,
+        courseId: e.course.id,
+        courseTitle: e.course.title,
+        enrolledAt: e.enrolledAt,
+      })),
     };
   }
 

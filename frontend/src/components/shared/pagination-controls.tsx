@@ -37,7 +37,11 @@ export function PaginationControls({
         {onPageSizeChange ? (
           <div className="flex items-center gap-2">
             <span className="text-sm text-muted-foreground">Rows</span>
-            <Select value={String(pageSize)} onValueChange={(v) => onPageSizeChange(Number(v))}>
+            <Select
+              items={Object.fromEntries(pageSizeOptions.map((size) => [String(size), String(size)]))}
+              value={String(pageSize)}
+              onValueChange={(v) => onPageSizeChange(Number(v))}
+            >
               <SelectTrigger size="sm" className="w-16">
                 <SelectValue />
               </SelectTrigger>

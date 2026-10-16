@@ -28,9 +28,17 @@ import {
 } from "@/components/ui/dropdown-menu";
 import { usePaginationState } from "@/hooks/use-pagination-state";
 import { tutorCoursesApi } from "@/lib/api/courses.api";
-import { formatDate } from "@/lib/utils/format";
+import { formatDate, pluralize } from "@/lib/utils/format";
 import { CourseStatus, type Course } from "@/types/course";
 import { ApiError } from "@/types/api";
+
+const STATUS_ITEMS: Record<string, string> = {
+  ALL: "All statuses",
+  [CourseStatus.DRAFT]: "Draft",
+  [CourseStatus.PUBLISHED]: "Published",
+  [CourseStatus.ARCHIVED]: "Archived",
+  [CourseStatus.DEACTIVATED]: "Deactivated",
+};
 
 export default function TutorCoursesPage() {
   const router = useRouter();
@@ -55,7 +63,7 @@ export default function TutorCoursesPage() {
   const publishMutation = useMutation({
     mutationFn: (id: string) => tutorCoursesApi.publish(id),
     onSuccess: () => {
-      toast.success("Course published successfully");
+      toast.success("Course published");
       void queryClient.invalidateQueries({ queryKey: ["tutor", "courses"] });
     },
     onError: (error) => toast.error(error instanceof ApiError ? error.message : "Failed to publish course"),
@@ -65,7 +73,7 @@ export default function TutorCoursesPage() {
   const archiveMutation = useMutation({
     mutationFn: (id: string) => tutorCoursesApi.archive(id),
     onSuccess: () => {
-      toast.success("Course archived successfully");
+      toast.success("Course archived");
       void queryClient.invalidateQueries({ queryKey: ["tutor", "courses"] });
     },
     onError: (error) => toast.error(error instanceof ApiError ? error.message : "Failed to archive course"),
@@ -75,12 +83,55 @@ export default function TutorCoursesPage() {
   const deleteMutation = useMutation({
     mutationFn: (id: string) => tutorCoursesApi.remove(id),
     onSuccess: () => {
-      toast.success("Course deleted successfully");
+      toast.success("Course deleted");
       void queryClient.invalidateQueries({ queryKey: ["tutor", "courses"] });
     },
     onError: (error) => toast.error(error instanceof ApiError ? error.message : "Failed to delete course"),
     onSettled: () => setPendingAction(null),
   });
+
+  function renderActions(course: Course) {
+    return (
+        <DropdownMenu>
+          <DropdownMenuTrigger
+            render={
+              <Button variant="ghost" size="icon-sm" aria-label={`Actions for "${course.title}"`}>
+                <MoreHorizontal className="size-4" />
+              </Button>
+            }
+          />
+          <DropdownMenuContent align="end">
+            <DropdownMenuItem onClick={() => router.push(`/tutor/courses/${course.id}`)}>
+              <Pencil /> {course.status === CourseStatus.DEACTIVATED ? "View" : "Manage"}
+            </DropdownMenuItem>
+            {course.status === CourseStatus.DEACTIVATED ? (
+              <DropdownMenuItem disabled>Deactivated by the admin</DropdownMenuItem>
+            ) : null}
+            {course.status !== CourseStatus.PUBLISHED && course.status !== CourseStatus.DEACTIVATED ? (
+              <DropdownMenuItem
+                disabled={course.lessonsCount === 0}
+                onClick={() => setPendingAction({ course, type: "publish" })}
+              >
+                <UploadCloud /> {course.status === CourseStatus.ARCHIVED ? "Restore and publish" : "Publish"}
+              </DropdownMenuItem>
+            ) : null}
+            {course.status !== CourseStatus.ARCHIVED && course.status !== CourseStatus.DEACTIVATED ? (
+              <DropdownMenuItem onClick={() => setPendingAction({ course, type: "archive" })}>
+                <Archive /> Archive
+              </DropdownMenuItem>
+            ) : null}
+            {course.status !== CourseStatus.DEACTIVATED ? (
+              <DropdownMenuItem
+                variant="destructive"
+                onClick={() => setPendingAction({ course, type: "delete" })}
+              >
+                <Trash2 /> Delete
+              </DropdownMenuItem>
+            ) : null}
+          </DropdownMenuContent>
+        </DropdownMenu>
+    );
+  }
 
   const columns: DataTableColumn<Course>[] = [
     {
@@ -100,38 +151,8 @@ export default function TutorCoursesPage() {
       id: "actions",
       header: "",
       headerClassName: "w-16",
-      cell: (course) => (
-        <DropdownMenu>
-          <DropdownMenuTrigger
-            render={
-              <Button variant="ghost" size="icon-sm">
-                <MoreHorizontal className="size-4" />
-              </Button>
-            }
-          />
-          <DropdownMenuContent align="end">
-            <DropdownMenuItem onClick={() => router.push(`/tutor/courses/${course.id}`)}>
-              <Pencil /> Manage
-            </DropdownMenuItem>
-            {course.status !== CourseStatus.PUBLISHED ? (
-              <DropdownMenuItem onClick={() => setPendingAction({ course, type: "publish" })}>
-                <UploadCloud /> Publish
-              </DropdownMenuItem>
-            ) : null}
-            {course.status !== CourseStatus.ARCHIVED ? (
-              <DropdownMenuItem onClick={() => setPendingAction({ course, type: "archive" })}>
-                <Archive /> Archive
-              </DropdownMenuItem>
-            ) : null}
-            <DropdownMenuItem
-              variant="destructive"
-              onClick={() => setPendingAction({ course, type: "delete" })}
-            >
-              <Trash2 /> Delete
-            </DropdownMenuItem>
-          </DropdownMenuContent>
-        </DropdownMenu>
-      ),
+      stopRowClick: true,
+      cell: renderActions,
     },
   ];
 
@@ -150,15 +171,16 @@ export default function TutorCoursesPage() {
 
       <div className="flex flex-col gap-3 sm:flex-row sm:items-center">
         <SearchInput value={search} onChange={setSearch} placeholder="Search courses..." />
-        <Select value={statusFilter} onValueChange={(value) => setStatusFilter(value ?? "ALL")}>
+        <Select items={STATUS_ITEMS} value={statusFilter} onValueChange={(value) => setStatusFilter(value ?? "ALL")}>
           <SelectTrigger className="w-full sm:w-40">
             <SelectValue placeholder="Status" />
           </SelectTrigger>
           <SelectContent>
-            <SelectItem value="ALL">All statuses</SelectItem>
-            <SelectItem value={CourseStatus.DRAFT}>Draft</SelectItem>
-            <SelectItem value={CourseStatus.PUBLISHED}>Published</SelectItem>
-            <SelectItem value={CourseStatus.ARCHIVED}>Archived</SelectItem>
+            {Object.entries(STATUS_ITEMS).map(([value, label]) => (
+              <SelectItem key={value} value={value}>
+                {label}
+              </SelectItem>
+            ))}
           </SelectContent>
         </Select>
       </div>
@@ -172,6 +194,25 @@ export default function TutorCoursesPage() {
         onRetry={() => void refetch()}
         emptyTitle="No courses yet"
         emptyDescription="Create your first course to get started."
+        onRowClick={(course) => router.push(`/tutor/courses/${course.id}`)}
+        rowAriaLabel={(course) => `Open "${course.title}"`}
+        renderCard={(course) => (
+          <div className="flex items-start gap-3">
+            <div className="min-w-0 flex-1 space-y-2">
+              <p className="truncate font-medium text-foreground">{course.title}</p>
+              <div className="flex flex-wrap items-center gap-2 text-xs text-muted-foreground">
+                <CourseStatusBadge status={course.status} />
+                <span>{pluralize(course.lessonsCount, "lesson")}</span>
+                <span>·</span>
+                <span>{pluralize(course.enrollmentsCount, "student")}</span>
+              </div>
+              <p className="text-xs text-muted-foreground">Updated {formatDate(course.updatedAt)}</p>
+            </div>
+            <div onClick={(event) => event.stopPropagation()} onKeyDown={(event) => event.stopPropagation()}>
+              {renderActions(course)}
+            </div>
+          </div>
+        )}
       />
 
       {data ? <PaginationControls meta={data.meta} onPageChange={setPage} onPageSizeChange={setPageSize} /> : null}
@@ -179,8 +220,8 @@ export default function TutorCoursesPage() {
       <ConfirmDialog
         open={pendingAction?.type === "publish"}
         onOpenChange={(open) => !open && setPendingAction(null)}
-        title="Publish this course?"
-        description="Once published, students will be able to view and enroll in this course."
+        title={pendingAction ? `Publish "${pendingAction.course.title}"?` : "Publish this course?"}
+        description="Students you enrol will be able to open the course. You can unpublish at any time."
         confirmLabel="Publish"
         isLoading={publishMutation.isPending}
         onConfirm={() => {
@@ -190,8 +231,8 @@ export default function TutorCoursesPage() {
       <ConfirmDialog
         open={pendingAction?.type === "archive"}
         onOpenChange={(open) => !open && setPendingAction(null)}
-        title="Archive this course?"
-        description="Archived courses are hidden from new enrollments but remain accessible to enrolled students."
+        title={pendingAction ? `Archive "${pendingAction.course.title}"?` : "Archive this course?"}
+        description="Archived courses are hidden from new enrolments but students already enrolled keep access."
         confirmLabel="Archive"
         isLoading={archiveMutation.isPending}
         onConfirm={() => {
@@ -201,9 +242,13 @@ export default function TutorCoursesPage() {
       <ConfirmDialog
         open={pendingAction?.type === "delete"}
         onOpenChange={(open) => !open && setPendingAction(null)}
-        title="Delete this course?"
-        description="This will permanently delete the course, its lessons and files. This action cannot be undone."
-        confirmLabel="Delete"
+        title={pendingAction ? `Delete "${pendingAction.course.title}"?` : "Delete this course?"}
+        description={
+          pendingAction
+            ? `This permanently deletes the course, its ${pluralize(pendingAction.course.lessonsCount, "lesson")} and files. ${pluralize(pendingAction.course.enrollmentsCount, "enrolled student")} will lose access. This cannot be undone.`
+            : undefined
+        }
+        confirmLabel="Delete course"
         destructive
         isLoading={deleteMutation.isPending}
         onConfirm={() => {

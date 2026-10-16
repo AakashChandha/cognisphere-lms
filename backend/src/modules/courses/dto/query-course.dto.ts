@@ -1,5 +1,5 @@
 import { ApiPropertyOptional } from '@nestjs/swagger';
-import { IsEnum, IsOptional } from 'class-validator';
+import { IsBooleanString, IsEnum, IsOptional } from 'class-validator';
 import { CourseStatus } from '@prisma/client';
 import { PaginationQueryDto } from '../../../common/dto/pagination-query.dto';
 
@@ -8,4 +8,9 @@ export class QueryCourseDto extends PaginationQueryDto {
   @IsOptional()
   @IsEnum(CourseStatus)
   status?: CourseStatus;
+
+  @ApiPropertyOptional({ description: 'Master only: "true" lists courses with no tutor' })
+  @IsOptional()
+  @IsBooleanString()
+  unassigned?: string;
 }

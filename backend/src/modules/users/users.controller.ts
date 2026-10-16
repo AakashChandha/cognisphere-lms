@@ -81,7 +81,7 @@ export class UsersController {
     @CurrentUser() actor: AuthenticatedUser,
     @Req() req: Request,
   ) {
-    const user = await this.usersService.update(id, dto);
+    const user = await this.usersService.update(id, dto, actor.id);
     await this.auditLog.record({
       actorId: actor.id,
       action: AuditAction.USER_UPDATED,
@@ -100,7 +100,7 @@ export class UsersController {
     @CurrentUser() actor: AuthenticatedUser,
     @Req() req: Request,
   ) {
-    const user = await this.usersService.setActive(id, isActive);
+    const user = await this.usersService.setActive(id, isActive, actor.id);
     await this.auditLog.record({
       actorId: actor.id,
       action: isActive ? AuditAction.USER_ENABLED : AuditAction.USER_DISABLED,
@@ -137,7 +137,7 @@ export class UsersController {
   @Delete(':id')
   @ApiOperation({ summary: 'Delete a user permanently' })
   async remove(@Param('id') id: string, @CurrentUser() actor: AuthenticatedUser, @Req() req: Request) {
-    await this.usersService.remove(id);
+    await this.usersService.remove(id, actor.id);
     await this.auditLog.record({
       actorId: actor.id,
       action: AuditAction.USER_DELETED,

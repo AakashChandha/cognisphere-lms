@@ -1,5 +1,6 @@
 "use client";
 
+import { useRouter } from "next/navigation";
 import { useQuery } from "@tanstack/react-query";
 import { PageHeader } from "@/components/shared/page-header";
 import { SearchInput } from "@/components/shared/search-input";
@@ -13,6 +14,7 @@ import { formatDate, getInitials } from "@/lib/utils/format";
 import type { Student } from "@/types/people";
 
 export default function MasterStudentsPage() {
+  const router = useRouter();
   const { page, pageSize, search, setPage, setPageSize, setSearch } = usePaginationState();
 
   const { data, isLoading, isError, refetch } = useQuery({
@@ -45,8 +47,8 @@ export default function MasterStudentsPage() {
 
   return (
     <div className="space-y-6">
-      <PageHeader title="Students" description="Every student account in the system." />
-      <SearchInput value={search} onChange={setSearch} placeholder="Search students..." />
+      <PageHeader title="Students" description="Everyone who learns. Click a student to manage their account." />
+      <SearchInput value={search} onChange={setSearch} placeholder="Search students by name or email" />
 
       <DataTable
         columns={columns}
@@ -56,6 +58,8 @@ export default function MasterStudentsPage() {
         isError={isError}
         onRetry={() => void refetch()}
         emptyTitle="No students found"
+        onRowClick={(student) => router.push(`/master/users?search=${encodeURIComponent(student.email)}`)}
+        rowAriaLabel={(student) => `Manage ${student.firstName} ${student.lastName}`}
       />
 
       {data ? <PaginationControls meta={data.meta} onPageChange={setPage} onPageSizeChange={setPageSize} /> : null}

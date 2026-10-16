@@ -73,7 +73,7 @@ export function AppTopbar({
       <DropdownMenu>
         <DropdownMenuTrigger
           render={
-            <Button variant="ghost" className="gap-2 px-2">
+            <Button variant="ghost" className="gap-2 px-2" aria-label="Account menu">
               <Avatar size="sm">
                 <AvatarFallback>{getInitials(user.firstName, user.lastName)}</AvatarFallback>
               </Avatar>

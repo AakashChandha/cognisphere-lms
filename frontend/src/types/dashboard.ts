@@ -4,6 +4,8 @@ export interface RecentAuditLogSummary {
   id: string;
   action: AuditAction;
   entityType: string;
+  entityId: string | null;
+  actorName: string | null;
   createdAt: string;
 }
 
@@ -19,7 +21,24 @@ export interface MasterDashboard {
   archivedCourses: number;
   totalEnrollments: number;
   totalAnnouncements: number;
+  unassignedCourses: number;
   recentActivity: RecentAuditLogSummary[];
+}
+
+export interface TutorDashboardCourseSummary {
+  id: string;
+  title: string;
+  status: string;
+  lessonsCount: number;
+  enrollmentsCount: number;
+  updatedAt: string;
+}
+
+export interface TutorDashboardEnrollmentSummary {
+  studentName: string;
+  courseId: string;
+  courseTitle: string;
+  enrolledAt: string;
 }
 
 export interface TutorDashboard {
@@ -30,6 +49,9 @@ export interface TutorDashboard {
   totalStudents: number;
   totalLessons: number;
   totalFiles: number;
+  needsAttention: TutorDashboardCourseSummary[];
+  recentCourses: TutorDashboardCourseSummary[];
+  recentEnrollments: TutorDashboardEnrollmentSummary[];
 }
 
 export interface DashboardCourseSummary {
@@ -37,6 +59,21 @@ export interface DashboardCourseSummary {
   title: string;
   status: string;
   thumbnailUrl: string | null;
+  tutorName: string;
+  completedLessons: number;
+  totalLessons: number;
+  nextLessonId: string | null;
+  nextLessonTitle: string | null;
+}
+
+export interface ContinueLearningSummary {
+  courseId: string;
+  courseTitle: string;
+  lessonId: string;
+  lessonTitle: string;
+  lessonNumber: number;
+  completedLessons: number;
+  totalLessons: number;
 }
 
 export interface DashboardAnnouncementSummary {
@@ -47,6 +84,7 @@ export interface DashboardAnnouncementSummary {
 
 export interface StudentDashboard {
   enrolledCoursesCount: number;
+  continueLearning: ContinueLearningSummary | null;
   recentCourses: DashboardCourseSummary[];
   recentAnnouncements: DashboardAnnouncementSummary[];
 }

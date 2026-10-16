@@ -58,8 +58,8 @@ interface AnnouncementFormDialogProps {
 
 const AUDIENCE_LABEL: Record<AnnouncementAudience, string> = {
   [AnnouncementAudience.ALL]: "Everyone",
-  [AnnouncementAudience.STUDENTS]: "Students",
-  [AnnouncementAudience.TUTORS]: "Tutors",
+  [AnnouncementAudience.STUDENTS]: "Students only",
+  [AnnouncementAudience.TUTORS]: "Tutors only",
 };
 
 export function AnnouncementFormDialog({
@@ -87,6 +87,15 @@ export function AnnouncementFormDialog({
     }
   }, [open, announcement, form]);
 
+  const audienceItems = React.useMemo(
+    () => Object.fromEntries(audienceOptions.map((option) => [option, AUDIENCE_LABEL[option]])),
+    [audienceOptions],
+  );
+  const courseItems = React.useMemo(
+    () => ({ none: "General (not course-specific)", ...Object.fromEntries((courses ?? []).map((c) => [c.id, c.title])) }),
+    [courses],
+  );
+
   function handleSubmit(values: AnnouncementFormValues) {
     onSubmit({ ...values, courseId: values.courseId === "none" ? undefined : values.courseId });
   }
@@ -106,7 +115,7 @@ export function AnnouncementFormDialog({
                 <FormItem>
                   <FormLabel>Title</FormLabel>
                   <FormControl>
-                    <Input placeholder="Announcement title" {...field} />
+                    <Input placeholder="e.g. Exam dates confirmed" {...field} />
                   </FormControl>
                   <FormMessage />
                 </FormItem>
@@ -119,7 +128,7 @@ export function AnnouncementFormDialog({
                 <FormItem>
                   <FormLabel>Content</FormLabel>
                   <FormControl>
-                    <Textarea rows={5} placeholder="Announcement content" {...field} />
+                    <Textarea rows={5} placeholder="Write the full message here" {...field} />
                   </FormControl>
                   <FormMessage />
                 </FormItem>
@@ -130,8 +139,8 @@ export function AnnouncementFormDialog({
               name="audience"
               render={({ field }) => (
                 <FormItem>
-                  <FormLabel>Audience</FormLabel>
-                  <Select value={field.value} onValueChange={field.onChange}>
+                  <FormLabel>Who should see this?</FormLabel>
+                  <Select items={audienceItems} value={field.value} onValueChange={field.onChange}>
                     <FormControl>
                       <SelectTrigger className="w-full">
                         <SelectValue />
@@ -156,7 +165,7 @@ export function AnnouncementFormDialog({
                 render={({ field }) => (
                   <FormItem>
                     <FormLabel>Course (optional)</FormLabel>
-                    <Select value={field.value} onValueChange={field.onChange}>
+                    <Select items={courseItems} value={field.value} onValueChange={field.onChange}>
                       <FormControl>
                         <SelectTrigger className="w-full">
                           <SelectValue placeholder="General announcement" />

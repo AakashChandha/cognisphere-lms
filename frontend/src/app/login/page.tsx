@@ -2,13 +2,13 @@
 
 import * as React from "react";
 import Link from "next/link";
-import { useRouter } from "next/navigation";
+import { useRouter, useSearchParams } from "next/navigation";
 import { useForm } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
 import { z } from "zod";
-import { Loader2, Eye, EyeOff } from "lucide-react";
-import { toast } from "sonner";
+import { Loader2, Eye, EyeOff, AlertCircle } from "lucide-react";
 import { Button } from "@/components/ui/button";
+import { Alert, AlertDescription } from "@/components/ui/alert";
 import { Input } from "@/components/ui/input";
 import {
   Form,
@@ -19,7 +19,7 @@ import {
   FormMessage,
 } from "@/components/ui/form";
 import { AuthLayout } from "@/components/layout/auth-layout";
-import { useAuth } from "@/lib/auth/auth-context";
+import { safeReturnPath, useAuth } from "@/lib/auth/auth-context";
 import { getHomePathForRoles } from "@/lib/constants/roles";
 import { ApiError } from "@/types/api";
 
@@ -32,9 +32,12 @@ type LoginFormValues = z.infer<typeof loginSchema>;
 
 export default function LoginPage() {
   const router = useRouter();
+  const searchParams = useSearchParams();
+  const returnPath = safeReturnPath(searchParams.get("next"));
   const { login, user, isLoading: authLoading } = useAuth();
   const [showPassword, setShowPassword] = React.useState(false);
   const [isSubmitting, setIsSubmitting] = React.useState(false);
+  const [formError, setFormError] = React.useState<string | null>(null);
 
   const form = useForm<LoginFormValues>({
     resolver: zodResolver(loginSchema),
@@ -43,28 +46,41 @@ export default function LoginPage() {
 
   React.useEffect(() => {
     if (!authLoading && user) {
-      router.replace(getHomePathForRoles(user.roles));
+      router.replace(user.mustChangePassword ? "/change-password" : (returnPath ?? getHomePathForRoles(user.roles)));
     }
-  }, [authLoading, user, router]);
+  }, [authLoading, user, router, returnPath]);
 
   async function onSubmit(values: LoginFormValues) {
     setIsSubmitting(true);
+    setFormError(null);
     try {
       const authenticatedUser = await login(values.email, values.password);
-      toast.success(`Welcome back, ${authenticatedUser.firstName}!`);
-      router.replace(getHomePathForRoles(authenticatedUser.roles));
+      router.replace(
+        authenticatedUser.mustChangePassword
+          ? "/change-password"
+          : (returnPath ?? getHomePathForRoles(authenticatedUser.roles)),
+      );
     } catch (error) {
-      const message = error instanceof ApiError ? error.message : "Unable to sign in. Please try again.";
-      toast.error(message);
+      const message =
+        error instanceof ApiError && error.status !== 0
+          ? error.message
+          : "We couldn't reach the server. Check your connection and try again.";
+      setFormError(message);
     } finally {
       setIsSubmitting(false);
     }
   }
 
   return (
-    <AuthLayout title="Sign in" description="Enter your credentials to access your dashboard">
+    <AuthLayout title="Welcome back" description="Sign in to continue your learning">
       <Form {...form}>
-        <form onSubmit={form.handleSubmit(onSubmit)} className="space-y-4">
+        <form onSubmit={form.handleSubmit(onSubmit)} className="space-y-4" onChange={() => setFormError(null)}>
+          {formError ? (
+            <Alert variant="destructive">
+              <AlertCircle />
+              <AlertDescription>{formError}</AlertDescription>
+            </Alert>
+          ) : null}
           <FormField
             control={form.control}
             name="email"
@@ -72,7 +88,7 @@ export default function LoginPage() {
               <FormItem>
                 <FormLabel>Email</FormLabel>
                 <FormControl>
-                  <Input type="email" placeholder="you@example.com" autoComplete="email" {...field} />
+                  <Input type="email" placeholder="you@company.com" autoComplete="email" {...field} />
                 </FormControl>
                 <FormMessage />
               </FormItem>
@@ -104,6 +120,7 @@ export default function LoginPage() {
                       onClick={() => setShowPassword((v) => !v)}
                       className="absolute right-2.5 top-1/2 -translate-y-1/2 text-muted-foreground hover:text-foreground"
                       tabIndex={-1}
+                      aria-label={showPassword ? "Hide password" : "Show password"}
                     >
                       {showPassword ? <EyeOff className="size-4" /> : <Eye className="size-4" />}
                     </button>

@@ -2,7 +2,7 @@ import 'reflect-metadata';
 import helmet from 'helmet';
 import compression from 'compression';
 import { NestFactory } from '@nestjs/core';
-import { ValidationPipe } from '@nestjs/common';
+import { INestApplication, ValidationPipe } from '@nestjs/common';
 import { DocumentBuilder, SwaggerModule } from '@nestjs/swagger';
 import { WinstonModule } from 'nest-winston';
 import { AppModule } from './app.module';
@@ -18,6 +18,11 @@ async function bootstrap(): Promise<void> {
   });
 
   const config = app.get(AppConfigService);
+
+  // The API always sits behind a reverse proxy (Caddy). Trusting the first
+  // hop makes `req.ip` the real client address for rate limiting and audit
+  // logs instead of the proxy's internal IP.
+  app.getHttpAdapter().getInstance().set('trust proxy', 1);
 
   app.use(helmet());
   app.use(compression());
@@ -44,6 +49,24 @@ async function bootstrap(): Promise<void> {
   app.useGlobalFilters(new AllExceptionsFilter());
   app.useGlobalInterceptors(new LoggingInterceptor(), new ResponseInterceptor());
 
+  if (!config.isProduction) {
+    setupSwagger(app);
+  }
+
+  await app.listen(config.port, '0.0.0.0');
+  // eslint-disable-next-line no-console
+  console.log(`LMS backend listening on port ${config.port}`);
+  if (!config.isProduction) {
+    // eslint-disable-next-line no-console
+    console.log(`Swagger documentation available at /api/docs`);
+  }
+}
+
+/**
+ * Interactive API docs are a development aid. They are not mounted in
+ * production so the public surface of the API is not advertised.
+ */
+function setupSwagger(app: INestApplication): void {
   const swaggerConfig = new DocumentBuilder()
     .setTitle('CGS LMS API')
     .setDescription(
@@ -76,12 +99,6 @@ async function bootstrap(): Promise<void> {
   SwaggerModule.setup('api/docs', app, document, {
     swaggerOptions: { persistAuthorization: true },
   });
-
-  await app.listen(config.port, '0.0.0.0');
-  // eslint-disable-next-line no-console
-  console.log(`LMS backend listening on port ${config.port}`);
-  // eslint-disable-next-line no-console
-  console.log(`Swagger documentation available at /api/docs`);
 }
 
 bootstrap();

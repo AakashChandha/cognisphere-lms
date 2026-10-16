@@ -5,13 +5,15 @@ export interface Lesson {
   content: string;
   orderIndex: number;
   filesCount: number;
+  /** Only for students: whether they marked this lesson complete. */
+  completed?: boolean;
   createdAt: string;
   updatedAt: string;
 }
 
 export interface CreateLessonPayload {
   title: string;
-  content: string;
+  content?: string;
   orderIndex?: number;
 }
 

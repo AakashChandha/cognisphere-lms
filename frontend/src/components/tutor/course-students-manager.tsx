@@ -24,7 +24,13 @@ import { getInitials } from "@/lib/utils/format";
 import type { Student } from "@/types/people";
 import { ApiError } from "@/types/api";
 
-export function CourseStudentsManager({ courseId }: { courseId: string }) {
+interface CourseStudentsManagerProps {
+  courseId: string;
+  /** Deactivated course seen by its tutor: the roster is visible, enrolment cannot change. */
+  readOnly?: boolean;
+}
+
+export function CourseStudentsManager({ courseId, readOnly = false }: CourseStudentsManagerProps) {
   const queryClient = useQueryClient();
   const enrolledKey = ["tutor", "courses", courseId, "students"];
   const [enrollDialogOpen, setEnrollDialogOpen] = React.useState(false);
@@ -50,7 +56,7 @@ export function CourseStudentsManager({ courseId }: { courseId: string }) {
   const enrollMutation = useMutation({
     mutationFn: (studentId: string) => tutorCoursesApi.enrollStudent(courseId, studentId),
     onSuccess: () => {
-      toast.success("Student enrolled successfully");
+      toast.success("Student enrolled");
       invalidate();
     },
     onError: (error) => toast.error(error instanceof ApiError ? error.message : "Failed to enroll student"),
@@ -59,7 +65,7 @@ export function CourseStudentsManager({ courseId }: { courseId: string }) {
   const unenrollMutation = useMutation({
     mutationFn: (studentId: string) => tutorCoursesApi.unenrollStudent(courseId, studentId),
     onSuccess: () => {
-      toast.success("Student removed from course");
+      toast.success("Student removed");
       setUnenrollTarget(null);
       invalidate();
     },
@@ -70,19 +76,29 @@ export function CourseStudentsManager({ courseId }: { courseId: string }) {
 
   return (
     <div className="space-y-3">
-      <div className="flex justify-end">
-        <Button size="sm" onClick={() => setEnrollDialogOpen(true)}>
-          <UserPlus className="size-3.5" />
-          Enroll student
-        </Button>
-      </div>
+      {readOnly ? (
+        <p className="text-sm text-muted-foreground">
+          The course is deactivated. Enrolled students cannot open it, and enrolment cannot change until it is reactivated.
+        </p>
+      ) : (
+        <div className="flex justify-end">
+          <Button size="sm" onClick={() => setEnrollDialogOpen(true)}>
+            <UserPlus className="size-3.5" />
+            Enrol student
+          </Button>
+        </div>
+      )}
 
       {isLoading ? (
         Array.from({ length: 3 }).map((_, i) => <Skeleton key={i} className="h-16 w-full" />)
       ) : isError ? (
         <ErrorState onRetry={() => void refetch()} />
       ) : enrolled!.items.length === 0 ? (
-        <EmptyState icon={Users} title="No students enrolled yet" />
+        <EmptyState
+          icon={Users}
+          title="No students enrolled yet"
+          description={readOnly ? "Nobody is enrolled on this course." : "Enrol students so they can open this course once it is published."}
+        />
       ) : (
         <div className="space-y-2">
           {enrolled!.items.map((student) => (
@@ -98,9 +114,11 @@ export function CourseStudentsManager({ courseId }: { courseId: string }) {
                   <p className="text-xs text-muted-foreground">{student.email}</p>
                 </div>
               </div>
-              <Button size="icon-sm" variant="ghost" onClick={() => setUnenrollTarget(student)} aria-label="Remove">
-                <UserMinus className="size-4 text-destructive" />
-              </Button>
+              {!readOnly ? (
+                <Button size="icon-sm" variant="ghost" onClick={() => setUnenrollTarget(student)} aria-label={`Remove ${student.firstName} ${student.lastName}`}>
+                  <UserMinus className="size-4 text-destructive" />
+                </Button>
+              ) : null}
             </div>
           ))}
         </div>
@@ -109,7 +127,7 @@ export function CourseStudentsManager({ courseId }: { courseId: string }) {
       <Dialog open={enrollDialogOpen} onOpenChange={setEnrollDialogOpen}>
         <DialogContent className="sm:max-w-md">
           <DialogHeader>
-            <DialogTitle>Enroll a student</DialogTitle>
+            <DialogTitle>Enrol a student</DialogTitle>
           </DialogHeader>
           <SearchInput value={search} onChange={setSearch} placeholder="Search students by name or email..." />
           <div className="max-h-80 space-y-1 overflow-y-auto">
@@ -153,9 +171,9 @@ export function CourseStudentsManager({ courseId }: { courseId: string }) {
       <ConfirmDialog
         open={!!unenrollTarget}
         onOpenChange={(open) => !open && setUnenrollTarget(null)}
-        title="Remove this student from the course?"
-        description="They will lose access to this course's lessons and materials."
-        confirmLabel="Remove"
+        title={unenrollTarget ? `Remove ${unenrollTarget.firstName} ${unenrollTarget.lastName} from this course?` : "Remove this student?"}
+        description="They lose access to the lessons and materials straight away. You can enrol them again later."
+        confirmLabel="Remove student"
         destructive
         isLoading={unenrollMutation.isPending}
         onConfirm={() => {

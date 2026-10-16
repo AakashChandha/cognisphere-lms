@@ -1,0 +1,31 @@
+# Single public entry point for the LMS.
+#
+# SITE_ADDRESS decides the mode:
+#   - unset / ":80"            plain HTTP (local development behind docker compose)
+#   - "lms.example.com"        Caddy obtains and renews a Let's Encrypt
+#                              certificate automatically and redirects HTTP -> HTTPS
+#
+# Everything under /api goes to the NestJS backend, the rest to Next.js.
+# Caddy is deliberately NOT health-gated on the backend: if the API restarts,
+# the site stays up and /api returns 502 for a few seconds.
+
+{$SITE_ADDRESS::80}
+
+encode gzip
+
+# Course material includes video; uploads can be large and slow.
+request_body {
+	max_size 2GB
+}
+
+handle /api/* {
+	reverse_proxy backend:{$BACKEND_PORT:5000} {
+		transport http {
+			read_timeout 30m
+		}
+	}
+}
+
+handle {
+	reverse_proxy frontend:{$FRONTEND_PORT:3000}
+}

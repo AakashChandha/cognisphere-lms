@@ -1,395 +1,202 @@
-# Production Deployment Guide
+# Production Deployment (first-time setup)
 
-This document describes how to deploy the Cognisphere LMS stack to an Ubuntu VPS (for example Hostinger) using the production Docker Compose setup.
+How to stand up the LMS on **one AWS Lightsail instance**. Takes about an hour, once. After this, everything you do day to day is in [OPERATIONS.md](./OPERATIONS.md). Why the setup looks like this is in the README's *Architecture Decisions*.
 
-Production uses **`docker-compose.yml`** only.
-Do **not** use `docker-compose.dev.yml` on the VPS.
+```text
+Browser ──HTTPS──▶ Caddy ──▶ /api/*  ──▶ NestJS ──▶ Postgres (container)
+                          └─▶ /*     ──▶ Next.js      └─▶ uploads volume (PDF, PPTX, MP4)
+
+nightly 02:30   pg_dump + file sync ──▶ Lightsail bucket (30 days kept)
+daily           Lightsail snapshot of the whole instance (7 kept)
+alerts          UptimeRobot (site + backup heartbeat), Lightsail status alarm
+```
+
+Containers on the instance (`docker-compose.yml`):
+
+| Container | Role |
+|-----------|------|
+| `lms-caddy` | Public entry on 80/443. Gets and renews the Let's Encrypt certificate itself. Routes `/api` to the backend, everything else to the frontend. |
+| `lms-frontend` | Next.js standalone build |
+| `lms-backend` | NestJS API; streams uploaded files, including video with Range requests |
+| `lms-migrate` | Runs once per deploy: Prisma migrations + seed (roles and master account only) |
+| `lms-postgres` | PostgreSQL 16, reachable only from other containers |
 
 ---
 
-## 1. What Production Means
+## 0. Before you start
 
-| Development | Production |
-|-------------|------------|
-| `docker-compose.dev.yml` | `docker-compose.yml` |
-| Source bind mounts + hot reload | Code baked into Docker images |
-| `next dev` + Nest `start:dev` watch mode | `next build` standalone + compiled Nest (`node dist/main.js`) |
-| Extra ports for debugging | Public traffic through Nginx |
-| Fast local iteration | Stable, restartable, VPS-ready |
+- A domain name you control (any registrar). Below it is called `lms.yourdomain.com`.
+- An AWS account (bills in INR with GST for Indian accounts).
+- Your SSH public key (`~/.ssh/id_ed25519.pub`; create one with `ssh-keygen -t ed25519` if needed).
+- A free [UptimeRobot](https://uptimerobot.com) account.
 
-Public entry point in production: **Nginx** → frontend or API.
+Monthly cost at the time of writing: instance $24 + bucket $3 + snapshots ≈ $2.5, about ₹3,300 with GST.
 
----
+## 1. Create the instance
 
-## 2. Architecture
+Lightsail console → **Create instance**
 
-```text
-Internet users
-      │
-      ▼
-┌─────────────────────────────────────────┐
-│  Ubuntu VPS (Hostinger)                 │
-│                                         │
-│   Port NGINX_PORT (e.g. 80 or 8080)     │
-│              │                          │
-│              ▼                          │
-│         ┌─────────┐                     │
-│         │  Nginx  │  ← public entry     │
-│         └────┬────┘                     │
-│       /      │      /api                │
-│      ▼       │         ▼                │
-│  Frontend    │      Backend             │
-│  (Next.js)   │      (NestJS)            │
-│  port 3000   │      port 5000           │
-│  (internal)  │      (internal)          │
-│              │         │                │
-│              │         ▼                │
-│              │     PostgreSQL           │
-│              │     port 5432            │
-│              │     volume: postgres_data│
-│                                         │
-│   One-off `migrate` job runs Prisma     │
-│   migrations + seed before `backend`    │
-│   starts accepting traffic.             │
-│                                         │
-│   Docker network: lms_network           │
-└─────────────────────────────────────────┘
-```
+| Setting | Value |
+|---------|-------|
+| Region | Asia Pacific (Mumbai), `ap-south-1` |
+| Platform | Linux/Unix |
+| Blueprint | **OS only → Ubuntu 24.04 LTS** |
+| SSH key | Upload your public key |
+| Plan | **4 GB RAM, 2 vCPU, 80 GB SSD** ($24/month) |
+| Name | `lms-prod` |
 
-### Containers
+Do not pick a smaller plan: building the frontend needs more memory than 2 GB.
 
-| Container | Built from / image | Role |
-|-----------|--------------------|------|
-| `lms-nginx` | `nginx:1.27-alpine` | Public reverse proxy |
-| `lms-frontend` | `frontend/Dockerfile.prod` | Optimized Next.js standalone app |
-| `lms-backend` | `backend/Dockerfile.prod` | NestJS REST API |
-| `lms-migrate` | `backend/Dockerfile.prod` (`deps` stage) | One-off: `prisma migrate deploy` + `prisma db seed`, then exits |
-| `lms-postgres` | `postgres:16-alpine` | Database |
+## 2. Static IP and firewall
 
-### Ports
+1. Networking → **Create static IP** → attach to `lms-prod`. Note the address.
+2. Instance → Networking → **IPv4 firewall**. Keep exactly these rules and delete anything else:
 
-| Port | Exposed to internet? | Purpose |
-|------|----------------------|---------|
-| `NGINX_PORT` → container `80` | **Yes** | Users access the app here |
-| Frontend `3000` | No (`expose` only) | Nginx → Next.js |
-| Backend `5000` | No (`expose` only) | Nginx → NestJS |
-| Postgres `5432` | Mapped via `POSTGRES_PORT` | Prefer firewalling in real prod |
+| Application | Port | Restrict to |
+|-------------|------|-------------|
+| SSH | 22 | Your IP (optional but recommended) |
+| HTTP | 80 | Anywhere |
+| HTTPS | 443 | Anywhere |
 
-For a hardened production VPS, restrict or remove public access to PostgreSQL so only containers can reach it.
+Nothing else is ever opened. Postgres is not reachable from outside by design.
 
----
+## 3. DNS
 
-## 3. How Communication Works
-
-### A. User opens the website
+At your registrar (or a Lightsail DNS zone), create:
 
 ```text
-Browser → http://YOUR_VPS_IP:8080/   (or :80 / https://your-domain)
-       → Nginx location /
-       → http://frontend:3000
-       → Next.js returns HTML/JS
+A    lms.yourdomain.com    →   <static IP>
 ```
 
-### B. UI calls the API
+Plain DNS only. Do not put Cloudflare's proxy in front; Caddy needs to answer on port 80 itself to obtain its certificate. Wait until `dig +short lms.yourdomain.com` returns the IP before step 7.
 
-Frontend code calls relative paths through its typed API client (`src/lib/api/*`):
+## 4. Backup bucket
 
-```text
-GET /api/student/courses
-```
+1. Lightsail → Storage → **Create bucket** → region Mumbai → plan **100 GB ($3/month)** → name e.g. `cgs-lms-backups`.
+2. Bucket → **Resource access** → attach `lms-prod`. The instance can then read and write the bucket without any stored keys.
+3. Leave the bucket private (the default).
 
-Browser sends the request to the same host as the page:
+## 5. GitHub deploy key
 
-```text
-http://YOUR_VPS/api/student/courses
-  → Nginx location /api/
-  → http://backend:5000/api/student/courses
-  → NestJS controller → service → Prisma → PostgreSQL
-  → JSON response back to browser
-```
-
-### C. Backend talks to the database
-
-```text
-NestJS (backend/src/config, backend/src/prisma)
-  reads DATABASE_URL from the environment (validated at boot with Joi)
-  → PrismaService (PrismaClient)
-  → Docker service name "postgres" on lms_network
-```
-
-The Next.js frontend never connects to PostgreSQL directly.
-
-### D. Important hostnames
-
-| Name | Meaning |
-|------|---------|
-| `frontend`, `backend`, `postgres` | Docker DNS names inside `lms_network` |
-| `localhost` on the VPS | The VPS host itself, not other containers |
-| Browser URL | Public IP or domain + Nginx port |
-
-In production, Nginx is the router for `/` and `/api`.
-Do not rely on Next.js development rewrites on the VPS (they still exist as a fallback via `INTERNAL_API_URL`, but Nginx is the intended path for real traffic).
-
-### E. Full request example (student's course list)
-
-```text
-1. Browser GET  /
-2. Nginx        → frontend:3000
-3. Next.js      → HTML + JS (client hydrates, reads JWT from localStorage)
-4. Browser GET  /api/student/courses  (Authorization: Bearer <accessToken>)
-5. Nginx        → backend:5000/api/student/courses
-6. NestJS       JwtAuthGuard → RolesGuard → controller → service
-7. PostgreSQL   query via Prisma
-8. JSON         → Nginx → Browser → UI (React Query cache)
-```
-
-### F. Startup order
-
-```text
-postgres (healthy)
-   → migrate (prisma migrate deploy && prisma db seed, then exits)
-      → backend (waits for migrate to complete successfully)
-         → frontend
-            → nginx
-```
-
----
-
-## 4. Prerequisites on the VPS
-
-### Required
-
-1. Ubuntu VPS (20.04 / 22.04 / 24.04 recommended)
-2. SSH access (root or sudo user)
-3. Docker Engine
-4. Docker Compose plugin
-5. Git
-6. Firewall rules:
-   - `22` for SSH
-   - `80` / `443` for HTTP/HTTPS (recommended with a domain)
-   - or `8080` if you keep `NGINX_PORT=8080` for testing
-
-### Optional but recommended
-
-- Domain name pointed to the VPS IP
-- TLS certificate (Let's Encrypt / Hostinger SSL)
-- VPS snapshots or database backups
-
-### Install Docker on Ubuntu (typical)
+The instance pulls the private repository with its own read-only key.
 
 ```bash
-sudo apt update
-sudo apt install -y ca-certificates curl git
-
-# Install Docker Engine + Compose using the official Docker Ubuntu docs:
-# https://docs.docker.com/engine/install/ubuntu/
-
-sudo usermod -aG docker $USER
-# Log out and back in, then verify:
-
-docker --version
-docker compose version
+ssh ubuntu@<static IP>
+ssh-keygen -t ed25519 -N '' -f ~/.ssh/id_ed25519 -C lms-prod
+cat ~/.ssh/id_ed25519.pub
 ```
 
-You do **not** need to install Node.js, Nginx, or PostgreSQL on the host OS. Docker runs them inside containers.
+GitHub → repository → Settings → Deploy keys → Add → paste the key, **read-only**.
 
-### Suggested VPS size for this project
+## 6. Prepare the server
 
-| Stage | Suggestion |
-|-------|------------|
-| Initial / low traffic | 1 vCPU, 4 GB RAM, 50 GB NVMe |
-| Growth / more users | 2 vCPU, 8 GB RAM, 100 GB NVMe |
-
----
-
-## 5. Deployment Steps
-
-### Step 1 — Prepare the VPS
-
-- Create the VPS and connect over SSH
-- Install Docker, Docker Compose, and Git
-- Open firewall ports for SSH and HTTP(S)/8080
-
-### Step 2 — Clone the repository
+Still on the instance:
 
 ```bash
-git clone <your-repository-url>
-cd cognisphere-lms
+sudo git clone git@github.com:<you>/cognisphere-lms.git /opt/lms
+sudo chown -R ubuntu:ubuntu /opt/lms
+cd /opt/lms
+sudo scripts/server-setup.sh
 ```
 
-### Step 3 — Create production environment file
+The script installs Docker, log rotation, a 2 GB swapfile, automatic security updates (reboot at 04:00 IST if needed), the AWS CLI, and the nightly backup cron job. It is safe to re-run. Log out and back in afterwards so your user can run `docker` without `sudo`.
+
+## 7. Configure and deploy
 
 ```bash
+cd /opt/lms
 cp .env.example .env
 nano .env
 ```
 
-Set strong values for at least:
+Set at least:
 
 ```env
-POSTGRES_PASSWORD=<strong-password>
-JWT_ACCESS_SECRET=<long-random-secret>
-JWT_REFRESH_SECRET=<different-long-random-secret>
-MASTER_SEED_EMAIL=<real-admin-email>
-MASTER_SEED_PASSWORD=<strong-password>
-NGINX_PORT=80
+SITE_ADDRESS=lms.yourdomain.com
+CORS_ORIGINS=https://lms.yourdomain.com
+POSTGRES_PASSWORD=<openssl rand -hex 24>
+DATABASE_URL=postgresql://lms_user:<same password>@postgres:5432/lms_db
+JWT_ACCESS_SECRET=<openssl rand -hex 32>
+JWT_REFRESH_SECRET=<openssl rand -hex 32>   # different from the access secret
+MASTER_SEED_EMAIL=<your real admin email>
+MASTER_SEED_PASSWORD=<strong password>
+BACKUP_BUCKET=cgs-lms-backups
 ```
 
-Keep `DATABASE_URL` pointed at the `postgres` Docker Compose service name — do not change it to `localhost` inside containers.
+**Copy the finished `.env` into your password manager now.** It is the only place these values exist.
 
-Do **not** commit `.env` to Git.
-
-### Step 4 — Start the production stack
+Then:
 
 ```bash
-docker compose up -d --build
+sudo scripts/deploy.sh
 ```
 
-This will:
+First run takes 5 to 10 minutes (image builds). It ends with the container table and a successful health check. Caddy obtains the certificate during the first minute; if `https://lms.yourdomain.com` is not up after two minutes, `docker compose logs caddy` will say why (almost always DNS not propagated yet).
 
-1. Build frontend and backend production images
-2. Pull Nginx and PostgreSQL images
-3. Create the Docker network and Postgres volume
-4. Run the `migrate` job (Prisma migrations + seed) and wait for it to finish
-5. Start the backend, frontend, and nginx containers in the background
+## 8. Verify
 
-The `migrate` job seeds the roles table and creates the Master account from `MASTER_SEED_EMAIL` / `MASTER_SEED_PASSWORD` **only if the database is empty** — it is safe to re-run `docker compose up -d --build` on subsequent deploys.
+- `https://lms.yourdomain.com` loads with a padlock; `http://` redirects to `https://`.
+- `https://lms.yourdomain.com/api/health` returns `"status":"ok"`.
+- `https://lms.yourdomain.com/api/docs` returns 404 (Swagger is off in production).
+- Log in with `MASTER_SEED_EMAIL`. Create a tutor and a student. Make sure `tutor.demo@cgslms.local` does **not** exist (Master → Users).
+- As the tutor, upload a PDF and an MP4; as the student, open both. The video should start within seconds and seeking should work.
+- On the instance: `docker compose ps` shows every container `Up` and the backend `(healthy)`; `free -m` shows swap.
 
-### Step 5 — Verify
+## 9. Snapshots and alarms
+
+1. Instance → **Snapshots** → enable **automatic snapshots** (daily; Lightsail keeps the last seven).
+2. Instance → **Alarms** → add one for **Status check failed** → notify by email. Skip the CPU alarm: builds max out the CPU on every deploy and would page you for nothing.
+
+## 10. UptimeRobot
+
+1. **HTTP(s) monitor** on `https://lms.yourdomain.com/api/health`, every 5 minutes, email alert.
+2. **Heartbeat monitor**, expected every 24 hours (allow a 2-hour grace). Copy its URL into `.env` as `HEARTBEAT_URL=` and run `docker compose up -d` (not strictly needed; only the backup script reads it).
+
+## 11. Rehearse the backup once
 
 ```bash
-docker compose ps
-docker compose logs -f
-curl http://localhost/api/health
+sudo scripts/backup.sh
+aws s3 ls s3://cgs-lms-backups/db/
+sudo scripts/restore-db.sh /var/backups/lms/db-<date>.dump
 ```
 
-If `NGINX_PORT=8080`:
+The heartbeat in UptimeRobot should turn green and the restore should finish without errors. You now know the recovery path works before you ever need it.
 
-```bash
-curl http://localhost:8080/api/health
-```
-
-Swagger API docs:
+## 12. Optional: SSH alias on your laptop
 
 ```text
-http://YOUR_VPS_IP:8080/api/docs
+# ~/.ssh/config
+Host lms
+  HostName <static IP>
+  User ubuntu
+  IdentityFile ~/.ssh/id_ed25519
 ```
 
-From your laptop:
-
-```text
-http://YOUR_VPS_IP
-# or
-http://YOUR_VPS_IP:8080
-```
-
-Log in with the Master account created from your `.env` values.
-
-### Step 6 — Domain and HTTPS (recommended)
-
-1. Point your domain A record to the VPS IP
-2. Terminate TLS with Hostinger SSL, Certbot, or a reverse proxy in front of this stack
-3. Application code does not need to change
-
----
-
-## 6. Production Dockerfiles
-
-### Frontend (`frontend/Dockerfile.prod`)
-
-Multi-stage build:
-
-1. `deps` — install dependencies (`npm ci`)
-2. `builder` — run `next build` with `output: "standalone"` (see `next.config.ts`)
-3. `runner` — copy only `public/`, `.next/standalone`, and `.next/static`, then run `node server.js` as a non-root user on port 3000
-
-No source bind mounts. The built app is inside the image.
-
-### Backend (`backend/Dockerfile.prod`)
-
-Multi-stage build:
-
-1. `deps` — install all dependencies and run `prisma generate`
-2. `builder` — copy source and run `nest build` (outputs `dist/`)
-3. `runner` — install production dependencies only, copy the generated Prisma client, `dist/`, and `prisma/`, then run `node dist/main.js` on port 5000
-
-The `migrate` service in `docker-compose.yml` reuses the `deps` stage (which has the full `prisma` CLI and schema) purely to run `prisma migrate deploy && prisma db seed` before the API starts.
-
-### PostgreSQL
-
-- Data persists in the named Docker volume `postgres_data`
-- Schema is managed entirely through Prisma migrations (`backend/prisma/migrations`), applied by the `migrate` service — there is no manual SQL init step
-
----
-
-## 7. Day-2 Operations
-
-| Task | Command |
-|------|---------|
-| Stop stack | `docker compose down` |
-| Start without rebuild | `docker compose up -d` |
-| Deploy new code | `git pull` then `docker compose up -d --build` |
-| View logs | `docker compose logs -f` |
-| Backend logs only | `docker compose logs -f backend` |
-| Re-run migrations/seed manually | `docker compose run --rm migrate` |
-| Reset database (destroys data) | `docker compose down -v` then `docker compose up -d --build` |
-
-### Connect to PostgreSQL from the VPS
+From then on, deploying is:
 
 ```bash
-docker compose exec postgres psql -U lms_user -d lms_db
+ssh lms 'cd /opt/lms && sudo scripts/deploy.sh'
 ```
-
-Use credentials from `.env` if you changed them.
 
 ---
 
-## 8. Environment Variables Reference
+## Environment variable reference
 
 | Variable | Purpose |
 |----------|---------|
-| `NGINX_PORT` | Host port mapped to Nginx |
-| `FRONTEND_PORT` | Next.js listen port inside Docker |
-| `BACKEND_PORT` | NestJS listen port inside Docker |
-| `POSTGRES_PORT` | Host port mapped to Postgres |
-| `POSTGRES_DB` / `POSTGRES_USER` / `POSTGRES_PASSWORD` | Database credentials |
-| `DATABASE_URL` | Full Prisma connection string (host must be `postgres` in Docker) |
-| `JWT_ACCESS_SECRET` / `JWT_ACCESS_EXPIRES_IN` | Access token signing secret + TTL |
-| `JWT_REFRESH_SECRET` / `JWT_REFRESH_EXPIRES_IN` | Refresh token signing secret + TTL |
-| `CORS_ORIGINS` | Comma-separated allowed browser origins, or `*` |
-| `STORAGE_DRIVER` | `local` today; will support `s3` without code changes |
-| `STORAGE_LOCAL_ROOT` | Filesystem path for uploaded course files |
-| `MAX_FILE_SIZE_BYTES` | Upload size limit enforced by the backend |
-| `THROTTLE_TTL_SECONDS` / `THROTTLE_LIMIT` | Rate limiting window and request cap |
-| `MASTER_SEED_EMAIL` / `MASTER_SEED_PASSWORD` | Master admin account created by the seed script |
-
----
-
-## 9. Production Checklist
-
-- [ ] Docker Engine and Docker Compose installed
-- [ ] Git installed
-- [ ] Repository cloned on the VPS
-- [ ] `.env` created with strong secrets
-- [ ] `docker compose up -d --build` succeeds and `migrate` exits with code 0
-- [ ] `/api/health` responds through Nginx
-- [ ] `/api/docs` (Swagger) is reachable and shows every module
-- [ ] Firewall allows SSH and web ports only
-- [ ] PostgreSQL is not publicly open if avoidable
-- [ ] Domain and HTTPS configured for real traffic
-- [ ] Backup plan for Postgres volume / VPS snapshots
-
----
-
-## 10. Mental Model
-
-**Users talk only to Nginx.
-Nginx talks to Next.js and NestJS.
-NestJS talks to PostgreSQL through Prisma.
-Everything runs as Docker containers on one Ubuntu VPS.**
-
-No application code changes are required between local production Compose and Hostinger deployment. Clone the repo, set `.env`, then run:
-
-```bash
-docker compose up -d --build
-```
+| `SITE_ADDRESS` | Public hostname. Caddy provisions HTTPS for it. Empty or `:80` means plain HTTP (dev). |
+| `PROXY_PORT` | Dev only: host port for the local proxy (default 8080). |
+| `FRONTEND_PORT` / `BACKEND_PORT` | Internal container ports. |
+| `POSTGRES_PORT` | Dev only: host port for a local SQL client. Not published in production. |
+| `POSTGRES_DB` / `POSTGRES_USER` / `POSTGRES_PASSWORD` | Database credentials. |
+| `DATABASE_URL` | Prisma connection string; host must be `postgres`. |
+| `JWT_ACCESS_SECRET` / `JWT_ACCESS_EXPIRES_IN` | Access token secret + lifetime. Also signs video/PDF stream links. |
+| `JWT_REFRESH_SECRET` / `JWT_REFRESH_EXPIRES_IN` | Refresh token secret + lifetime. |
+| `CORS_ORIGINS` | Allowed browser origins; the site URL in production. |
+| `STORAGE_DRIVER` / `STORAGE_LOCAL_ROOT` | `local` and the in-container path of the uploads volume. |
+| `MAX_FILE_SIZE_BYTES` | Per-file upload limit (default 2 GB). Caddy enforces the same ceiling. |
+| `STREAM_URL_TTL_SECONDS` | How long a video/PDF stream link stays valid (default 1 hour). |
+| `THROTTLE_TTL_SECONDS` / `THROTTLE_LIMIT` | API rate limit per client IP. |
+| `MASTER_SEED_EMAIL` / `MASTER_SEED_PASSWORD` | Master account created on first boot. |
+| `BACKUP_BUCKET` / `AWS_DEFAULT_REGION` | Where `scripts/backup.sh` sends backups. |
+| `HEARTBEAT_URL` | UptimeRobot heartbeat pinged after a successful backup. |

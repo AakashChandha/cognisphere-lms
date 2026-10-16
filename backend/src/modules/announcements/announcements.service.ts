@@ -1,5 +1,5 @@
 import { ForbiddenException, Injectable, NotFoundException } from '@nestjs/common';
-import { AnnouncementAudience, Prisma } from '@prisma/client';
+import { AnnouncementAudience, CourseStatus, Prisma } from '@prisma/client';
 import { PrismaService } from '../../prisma/prisma.service';
 import { buildPaginatedResult } from '../../common/utils/pagination.util';
 import { PaginatedResult } from '../../common/interfaces/paginated-result.interface';
@@ -79,6 +79,9 @@ export class AnnouncementsService {
   ): Promise<AnnouncementResponseDto> {
     const announcement = await this.getOrThrow(id);
     this.assertCanManageAnnouncement(user, announcement);
+    if (dto.courseId && dto.courseId !== announcement.courseId) {
+      await this.assertCanManageCourse(user, dto.courseId);
+    }
 
     const updated = await this.prisma.announcement.update({
       where: { id },
@@ -121,8 +124,14 @@ export class AnnouncementsService {
       throw new NotFoundException('Course not found');
     }
 
-    if (course.tutor.userId !== user.id) {
+    if (!course.tutor || course.tutor.userId !== user.id) {
       throw new ForbiddenException('You do not have access to this course');
+    }
+
+    if (course.status === CourseStatus.DEACTIVATED) {
+      throw new ForbiddenException(
+        `This course was deactivated by an administrator: ${course.deactivationReason ?? 'no reason given'}`,
+      );
     }
   }
 
@@ -146,7 +155,14 @@ export class AnnouncementsService {
           { audience: AnnouncementAudience.ALL },
           { audience: AnnouncementAudience.STUDENTS },
           ...(student
-            ? [{ course: { enrollments: { some: { studentId: student.id } } } }]
+            ? [
+                {
+                  course: {
+                    status: CourseStatus.PUBLISHED,
+                    enrollments: { some: { studentId: student.id } },
+                  },
+                },
+              ]
             : []),
         ],
       };

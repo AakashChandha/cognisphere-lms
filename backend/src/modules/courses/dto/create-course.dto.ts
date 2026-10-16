@@ -1,5 +1,5 @@
 import { ApiProperty, ApiPropertyOptional } from '@nestjs/swagger';
-import { IsOptional, IsString, IsUrl, MaxLength, MinLength } from 'class-validator';
+import { IsOptional, IsString, IsUUID, IsUrl, MaxLength, MinLength } from 'class-validator';
 
 export class CreateCourseDto {
   @ApiProperty({ example: 'Introduction to Web Development', maxLength: 160 })
@@ -17,4 +17,12 @@ export class CreateCourseDto {
   @IsOptional()
   @IsUrl()
   thumbnailUrl?: string;
+
+  @ApiPropertyOptional({
+    description:
+      'Master only: Tutor id (Tutor.id) who will own the course; omit to leave it unassigned. Ignored for tutors, who always own their own courses.',
+  })
+  @IsOptional()
+  @IsUUID()
+  tutorId?: string;
 }

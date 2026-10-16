@@ -17,15 +17,15 @@ export function StudentFileActions({ file, onView }: StudentFileActionsProps) {
     return (
       <span className="flex shrink-0 items-center gap-1.5 text-xs text-amber-600 dark:text-amber-400">
         <FileWarning className="size-3.5" />
-        Not viewable
+        Can&apos;t be opened here
       </span>
     );
   }
 
   return (
-    <Button size="sm" variant="outline" onClick={() => onView(file)}>
+    <Button size="sm" variant="outline" onClick={() => onView(file)} aria-label={`Open "${file.originalName}"`}>
       <Eye className="size-3.5" />
-      View
+      Open
     </Button>
   );
 }

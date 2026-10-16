@@ -22,7 +22,7 @@ export function FileViewerDialog({ file, open, onOpenChange }: FileViewerDialogP
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className="flex h-[90vh] w-full max-w-[calc(100%-2rem)] flex-col gap-3 sm:max-w-6xl">
+      <DialogContent className="flex h-dvh w-full max-w-full flex-col gap-3 rounded-none sm:h-[90vh] sm:max-w-[calc(100%-2rem)] sm:rounded-xl lg:max-w-6xl">
         <DialogHeader className="pr-8">
           <DialogTitle className="truncate">{file?.originalName ?? "File preview"}</DialogTitle>
           <DialogDescription>
@@ -30,7 +30,9 @@ export function FileViewerDialog({ file, open, onOpenChange }: FileViewerDialogP
               ? "PDF preview"
               : previewKind === "pptx"
                 ? "PowerPoint preview"
-                : "Preview"}
+                : previewKind === "video"
+                  ? "Video"
+                  : "Preview"}
           </DialogDescription>
         </DialogHeader>
 

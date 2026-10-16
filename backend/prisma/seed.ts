@@ -26,6 +26,8 @@ async function main(): Promise<void> {
     await prisma.user.create({
       data: {
         email: masterEmail,
+        // The seeded password comes from .env; in production force a real one at first sign-in.
+        mustChangePassword: process.env.NODE_ENV === 'production',
         passwordHash,
         firstName: 'System',
         lastName: 'Administrator',
@@ -34,6 +36,16 @@ async function main(): Promise<void> {
     });
   } else {
     console.log('Master account already exists, skipping.');
+  }
+
+  // Demo tutor/student/course data is for local development only. Their
+  // passwords are documented in the README, so they must never exist on a
+  // public deployment. The production `migrate` job runs with
+  // NODE_ENV=production and therefore only seeds roles + the master account.
+  if (process.env.NODE_ENV === 'production') {
+    console.log('Production environment: skipping demo accounts and demo course.');
+    console.log('Seed complete.');
+    return;
   }
 
   const demoTutorEmail = 'tutor.demo@cgslms.local';

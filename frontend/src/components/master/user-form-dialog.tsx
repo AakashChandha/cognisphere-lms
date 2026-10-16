@@ -8,6 +8,7 @@ import { Loader2 } from "lucide-react";
 import {
   Dialog,
   DialogContent,
+  DialogDescription,
   DialogFooter,
   DialogHeader,
   DialogTitle,
@@ -18,30 +19,32 @@ import { Checkbox } from "@/components/ui/checkbox";
 import {
   Form,
   FormControl,
+  FormDescription,
   FormField,
   FormItem,
   FormLabel,
   FormMessage,
 } from "@/components/ui/form";
+import { PasswordField } from "@/components/master/password-field";
 import { AppRole } from "@/types/auth";
 import type { ManagedUser } from "@/types/people";
 
-const ROLE_OPTIONS: { value: AppRole; label: string }[] = [
-  { value: AppRole.MASTER, label: "Master" },
-  { value: AppRole.TUTOR, label: "Tutor" },
-  { value: AppRole.STUDENT, label: "Student" },
+const ROLE_OPTIONS: { value: AppRole; label: string; hint: string }[] = [
+  { value: AppRole.STUDENT, label: "Student", hint: "Takes courses" },
+  { value: AppRole.TUTOR, label: "Tutor", hint: "Creates and teaches courses" },
+  { value: AppRole.MASTER, label: "Administrator", hint: "Manages everyone and everything" },
 ];
 
 function buildSchema(isCreate: boolean) {
   return z.object({
     email: isCreate
-      ? z.string().email("Enter a valid email address")
+      ? z.string().trim().min(1, "Email is required").email("Enter a valid email address")
       : z.string().email().optional().or(z.literal("")),
     password: isCreate
-      ? z.string().min(8, "Password must be at least 8 characters")
+      ? z.string().min(8, "Use at least 8 characters")
       : z.string().optional().or(z.literal("")),
-    firstName: z.string().min(1, "First name is required"),
-    lastName: z.string().min(1, "Last name is required"),
+    firstName: z.string().trim().min(1, "First name is required"),
+    lastName: z.string().trim().min(1, "Last name is required"),
     roles: z.array(z.nativeEnum(AppRole)).min(1, "Select at least one role"),
   });
 }
@@ -72,7 +75,7 @@ export function UserFormDialog({ open, onOpenChange, user, isSubmitting, onSubmi
         password: "",
         firstName: user?.firstName ?? "",
         lastName: user?.lastName ?? "",
-        roles: user?.roles ?? [],
+        roles: user?.roles ?? [AppRole.STUDENT],
       });
     }
   }, [open, user, form]);
@@ -81,7 +84,12 @@ export function UserFormDialog({ open, onOpenChange, user, isSubmitting, onSubmi
     <Dialog open={open} onOpenChange={onOpenChange}>
       <DialogContent className="sm:max-w-lg">
         <DialogHeader>
-          <DialogTitle>{isCreate ? "Create new user" : "Edit user"}</DialogTitle>
+          <DialogTitle>{isCreate ? "Add a person" : `Edit ${user.firstName} ${user.lastName}`}</DialogTitle>
+          <DialogDescription>
+            {isCreate
+              ? "They sign in with this email and the temporary password, then choose their own password."
+              : "Change their name or what they can do."}
+          </DialogDescription>
         </DialogHeader>
         <Form {...form}>
           <form onSubmit={form.handleSubmit(onSubmit)} className="space-y-4">
@@ -91,9 +99,11 @@ export function UserFormDialog({ open, onOpenChange, user, isSubmitting, onSubmi
                 name="firstName"
                 render={({ field }) => (
                   <FormItem>
-                    <FormLabel>First name</FormLabel>
+                    <FormLabel>
+                      First name <span className="text-destructive">*</span>
+                    </FormLabel>
                     <FormControl>
-                      <Input {...field} />
+                      <Input autoFocus autoComplete="off" {...field} />
                     </FormControl>
                     <FormMessage />
                   </FormItem>
@@ -104,9 +114,11 @@ export function UserFormDialog({ open, onOpenChange, user, isSubmitting, onSubmi
                 name="lastName"
                 render={({ field }) => (
                   <FormItem>
-                    <FormLabel>Last name</FormLabel>
+                    <FormLabel>
+                      Last name <span className="text-destructive">*</span>
+                    </FormLabel>
                     <FormControl>
-                      <Input {...field} />
+                      <Input autoComplete="off" {...field} />
                     </FormControl>
                     <FormMessage />
                   </FormItem>
@@ -121,9 +133,11 @@ export function UserFormDialog({ open, onOpenChange, user, isSubmitting, onSubmi
                   name="email"
                   render={({ field }) => (
                     <FormItem>
-                      <FormLabel>Email</FormLabel>
+                      <FormLabel>
+                        Email <span className="text-destructive">*</span>
+                      </FormLabel>
                       <FormControl>
-                        <Input type="email" placeholder="jane.doe@example.com" {...field} />
+                        <Input type="email" placeholder="name@company.com" autoComplete="off" {...field} />
                       </FormControl>
                       <FormMessage />
                     </FormItem>
@@ -134,10 +148,13 @@ export function UserFormDialog({ open, onOpenChange, user, isSubmitting, onSubmi
                   name="password"
                   render={({ field }) => (
                     <FormItem>
-                      <FormLabel>Temporary password</FormLabel>
+                      <FormLabel>
+                        Temporary password <span className="text-destructive">*</span>
+                      </FormLabel>
                       <FormControl>
-                        <Input type="password" placeholder="At least 8 characters" {...field} />
+                        <PasswordField value={field.value ?? ""} onChange={field.onChange} onBlur={field.onBlur} name={field.name} />
                       </FormControl>
+                      <FormDescription>Share it with them privately. They will be asked to change it at first sign-in.</FormDescription>
                       <FormMessage />
                     </FormItem>
                   )}
@@ -150,13 +167,21 @@ export function UserFormDialog({ open, onOpenChange, user, isSubmitting, onSubmi
               name="roles"
               render={({ field }) => (
                 <FormItem>
-                  <FormLabel>Roles</FormLabel>
-                  <div className="flex flex-wrap gap-4">
+                  <FormLabel>What can they do?</FormLabel>
+                  <div className="grid gap-2">
                     {ROLE_OPTIONS.map((option) => {
                       const checked = field.value.includes(option.value);
+                      const id = `role-${option.value}`;
                       return (
-                        <label key={option.value} className="flex items-center gap-2 text-sm text-foreground">
+                        <label
+                          key={option.value}
+                          htmlFor={id}
+                          className="flex cursor-pointer items-start gap-3 rounded-lg border border-border p-3 text-sm transition-colors hover:bg-muted/60 has-data-checked:border-primary has-data-checked:bg-primary/5"
+                        >
                           <Checkbox
+                            id={id}
+                            className="mt-0.5"
+                            aria-label={option.label}
                             checked={checked}
                             onCheckedChange={(value) => {
                               if (value) {
@@ -166,7 +191,10 @@ export function UserFormDialog({ open, onOpenChange, user, isSubmitting, onSubmi
                               }
                             }}
                           />
-                          {option.label}
+                          <span>
+                            <span className="block font-medium text-foreground">{option.label}</span>
+                            <span className="block text-xs text-muted-foreground">{option.hint}</span>
+                          </span>
                         </label>
                       );
                     })}
@@ -182,7 +210,7 @@ export function UserFormDialog({ open, onOpenChange, user, isSubmitting, onSubmi
               </Button>
               <Button type="submit" disabled={isSubmitting}>
                 {isSubmitting ? <Loader2 className="size-4 animate-spin" /> : null}
-                {isCreate ? "Create user" : "Save changes"}
+                {isCreate ? "Create account" : "Save changes"}
               </Button>
             </DialogFooter>
           </form>

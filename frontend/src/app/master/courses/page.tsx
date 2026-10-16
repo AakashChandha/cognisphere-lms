@@ -1,15 +1,17 @@
 "use client";
 
 import * as React from "react";
+import Link from "next/link";
+import { useRouter, useSearchParams } from "next/navigation";
 import { useQuery } from "@tanstack/react-query";
-import { Eye } from "lucide-react";
+import { MoreHorizontal, Pencil, Plus, UserCog, UserX } from "lucide-react";
 import { PageHeader } from "@/components/shared/page-header";
 import { SearchInput } from "@/components/shared/search-input";
 import { PaginationControls } from "@/components/shared/pagination-controls";
 import { DataTable, type DataTableColumn } from "@/components/shared/data-table";
-import { CourseStatusBadge } from "@/components/shared/status-badge";
+import { CourseStatusBadge, StatusBadge } from "@/components/shared/status-badge";
+import { ReassignTutorDialog } from "@/components/master/reassign-tutor-dialog";
 import { Button } from "@/components/ui/button";
-import { Skeleton } from "@/components/ui/skeleton";
 import {
   Select,
   SelectContent,
@@ -18,42 +20,105 @@ import {
   SelectValue,
 } from "@/components/ui/select";
 import {
-  Sheet,
-  SheetContent,
-  SheetHeader,
-  SheetTitle,
-  SheetDescription,
-} from "@/components/ui/sheet";
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuTrigger,
+} from "@/components/ui/dropdown-menu";
 import { usePaginationState } from "@/hooks/use-pagination-state";
 import { masterCoursesApi } from "@/lib/api/courses.api";
-import { formatDate } from "@/lib/utils/format";
+import { formatDate, pluralize } from "@/lib/utils/format";
 import { CourseStatus, type Course } from "@/types/course";
 
+const STATUS_ITEMS: Record<string, string> = {
+  ALL: "All statuses",
+  [CourseStatus.DRAFT]: "Draft",
+  [CourseStatus.PUBLISHED]: "Published",
+  [CourseStatus.ARCHIVED]: "Archived",
+  [CourseStatus.DEACTIVATED]: "Deactivated",
+};
+
+function TutorCell({ course }: { course: Course }) {
+  if (!course.tutor) {
+    return <StatusBadge tone="warning">Unassigned</StatusBadge>;
+  }
+  return (
+    <span>
+      {course.tutor.firstName} {course.tutor.lastName}
+    </span>
+  );
+}
+
 export default function MasterCoursesPage() {
+  const router = useRouter();
+  const searchParams = useSearchParams();
   const { page, pageSize, search, setPage, setPageSize, setSearch } = usePaginationState();
-  const [statusFilter, setStatusFilter] = React.useState<string>("ALL");
-  const [viewingId, setViewingId] = React.useState<string | null>(null);
+
+  const statusParam = searchParams.get("status");
+  const statusFilter = statusParam && statusParam in STATUS_ITEMS ? statusParam : "ALL";
+  const unassignedOnly = searchParams.get("unassigned") === "true";
+  const [reassignTarget, setReassignTarget] = React.useState<Course | null>(null);
+
+  function updateFilters(next: { status?: string; unassigned?: boolean }) {
+    const params = new URLSearchParams(searchParams.toString());
+    if (next.status !== undefined) {
+      if (next.status === "ALL") params.delete("status");
+      else params.set("status", next.status);
+    }
+    if (next.unassigned !== undefined) {
+      if (next.unassigned) params.set("unassigned", "true");
+      else params.delete("unassigned");
+    }
+    const query = params.toString();
+    router.replace(`/master/courses${query ? `?${query}` : ""}`, { scroll: false });
+    setPage(1);
+  }
 
   const { data, isLoading, isError, refetch } = useQuery({
-    queryKey: ["master", "courses", { page, pageSize, search, statusFilter }],
+    queryKey: ["master", "courses", { page, pageSize, search, statusFilter, unassignedOnly }],
     queryFn: () =>
       masterCoursesApi.list({
         page,
         pageSize,
         search,
         status: statusFilter === "ALL" ? undefined : (statusFilter as CourseStatus),
+        unassigned: unassignedOnly ? "true" : undefined,
       }),
   });
 
-  const detailQuery = useQuery({
-    queryKey: ["master", "courses", viewingId],
-    queryFn: () => masterCoursesApi.getById(viewingId!),
-    enabled: !!viewingId,
-  });
+  function renderActions(course: Course) {
+    return (
+      <DropdownMenu>
+        <DropdownMenuTrigger
+          render={
+            <Button variant="ghost" size="icon-sm" aria-label={`Actions for "${course.title}"`}>
+              <MoreHorizontal className="size-4" />
+            </Button>
+          }
+        />
+        <DropdownMenuContent align="end">
+          <DropdownMenuItem onClick={() => router.push(`/master/courses/${course.id}`)}>
+            <Pencil /> Manage
+          </DropdownMenuItem>
+          <DropdownMenuItem onClick={() => setReassignTarget(course)}>
+            <UserCog /> {course.tutor ? "Change tutor" : "Assign a tutor"}
+          </DropdownMenuItem>
+        </DropdownMenuContent>
+      </DropdownMenu>
+    );
+  }
 
   const columns: DataTableColumn<Course>[] = [
-    { id: "title", header: "Course", cell: (course) => <span className="font-medium text-foreground">{course.title}</span> },
-    { id: "tutor", header: "Tutor", cell: (course) => `${course.tutor.firstName} ${course.tutor.lastName}` },
+    {
+      id: "title",
+      header: "Course",
+      cell: (course) => (
+        <Link href={`/master/courses/${course.id}`} className="font-medium text-foreground hover:underline">
+          {course.title}
+        </Link>
+      ),
+    },
+    { id: "tutor", header: "Tutor", cell: (course) => <TutorCell course={course} /> },
     { id: "status", header: "Status", cell: (course) => <CourseStatusBadge status={course.status} /> },
     { id: "lessons", header: "Lessons", cell: (course) => course.lessonsCount },
     { id: "students", header: "Students", cell: (course) => course.enrollmentsCount },
@@ -62,31 +127,47 @@ export default function MasterCoursesPage() {
       id: "actions",
       header: "",
       headerClassName: "w-16",
-      cell: (course) => (
-        <Button size="icon-sm" variant="ghost" aria-label="View" onClick={() => setViewingId(course.id)}>
-          <Eye className="size-4" />
-        </Button>
-      ),
+      stopRowClick: true,
+      cell: renderActions,
     },
   ];
 
   return (
     <div className="space-y-6">
-      <PageHeader title="Courses" description="Every course across all tutors." />
+      <PageHeader
+        title="Courses"
+        description="Every course across all tutors. Open one to edit it exactly as its tutor would."
+        actions={
+          <Button nativeButton={false} render={<Link href="/master/courses/new" />}>
+            <Plus className="size-4" />
+            New course
+          </Button>
+        }
+      />
 
-      <div className="flex flex-col gap-3 sm:flex-row sm:items-center">
-        <SearchInput value={search} onChange={setSearch} placeholder="Search courses..." />
-        <Select value={statusFilter} onValueChange={(value) => setStatusFilter(value ?? "ALL")}>
-          <SelectTrigger className="w-full sm:w-40">
-            <SelectValue placeholder="Status" />
+      <div className="flex flex-col gap-3 sm:flex-row sm:flex-wrap sm:items-center">
+        <SearchInput value={search} onChange={setSearch} placeholder="Search courses by title" />
+        <Select items={STATUS_ITEMS} value={statusFilter} onValueChange={(value) => updateFilters({ status: value ?? "ALL" })}>
+          <SelectTrigger className="w-full sm:w-40" aria-label="Filter by status">
+            <SelectValue />
           </SelectTrigger>
           <SelectContent>
-            <SelectItem value="ALL">All statuses</SelectItem>
-            <SelectItem value={CourseStatus.DRAFT}>Draft</SelectItem>
-            <SelectItem value={CourseStatus.PUBLISHED}>Published</SelectItem>
-            <SelectItem value={CourseStatus.ARCHIVED}>Archived</SelectItem>
+            {Object.entries(STATUS_ITEMS).map(([value, label]) => (
+              <SelectItem key={value} value={value}>
+                {label}
+              </SelectItem>
+            ))}
           </SelectContent>
         </Select>
+        <Button
+          type="button"
+          variant={unassignedOnly ? "default" : "outline"}
+          aria-pressed={unassignedOnly}
+          onClick={() => updateFilters({ unassigned: !unassignedOnly })}
+        >
+          <UserX className="size-4" />
+          Unassigned only
+        </Button>
       </div>
 
       <DataTable
@@ -96,59 +177,40 @@ export default function MasterCoursesPage() {
         isLoading={isLoading}
         isError={isError}
         onRetry={() => void refetch()}
-        emptyTitle="No courses found"
+        emptyTitle={unassignedOnly ? "No unassigned courses" : "No courses found"}
+        emptyDescription={unassignedOnly ? "Every course has a tutor." : "Try adjusting your search or filters."}
+        onRowClick={(course) => router.push(`/master/courses/${course.id}`)}
+        rowAriaLabel={(course) => `Open "${course.title}"`}
+        renderCard={(course) => (
+          <div className="flex items-start gap-3">
+            <div className="min-w-0 flex-1 space-y-2">
+              <p className="truncate font-medium text-foreground">{course.title}</p>
+              <div className="flex flex-wrap items-center gap-2 text-xs text-muted-foreground">
+                <CourseStatusBadge status={course.status} />
+                <TutorCell course={course} />
+              </div>
+              <div className="flex flex-wrap items-center gap-2 text-xs text-muted-foreground">
+                <span>{pluralize(course.lessonsCount, "lesson")}</span>
+                <span>·</span>
+                <span>{pluralize(course.enrollmentsCount, "student")}</span>
+                <span>·</span>
+                <span>Updated {formatDate(course.updatedAt)}</span>
+              </div>
+            </div>
+            <div onClick={(event) => event.stopPropagation()} onKeyDown={(event) => event.stopPropagation()}>
+              {renderActions(course)}
+            </div>
+          </div>
+        )}
       />
 
       {data ? <PaginationControls meta={data.meta} onPageChange={setPage} onPageSizeChange={setPageSize} /> : null}
 
-      <Sheet open={!!viewingId} onOpenChange={(open) => !open && setViewingId(null)}>
-        <SheetContent>
-          <SheetHeader>
-            <SheetTitle>Course details</SheetTitle>
-            <SheetDescription>Read-only overview of this course.</SheetDescription>
-          </SheetHeader>
-          <div className="space-y-4 overflow-y-auto px-4 pb-4">
-            {detailQuery.isLoading ? (
-              <div className="space-y-3">
-                <Skeleton className="h-6 w-3/4" />
-                <Skeleton className="h-20 w-full" />
-                <Skeleton className="h-6 w-1/2" />
-              </div>
-            ) : detailQuery.data ? (
-              <>
-                <div>
-                  <h3 className="text-lg font-semibold text-foreground">{detailQuery.data.title}</h3>
-                  <div className="mt-1 flex items-center gap-2">
-                    <CourseStatusBadge status={detailQuery.data.status} />
-                    <span className="text-xs text-muted-foreground">
-                      by {detailQuery.data.tutor.firstName} {detailQuery.data.tutor.lastName}
-                    </span>
-                  </div>
-                </div>
-                <p className="text-sm text-muted-foreground">{detailQuery.data.description}</p>
-                <div className="grid grid-cols-2 gap-3 text-sm">
-                  <div className="rounded-lg border border-border p-3">
-                    <p className="text-xs text-muted-foreground">Lessons</p>
-                    <p className="text-lg font-semibold text-foreground">{detailQuery.data.lessonsCount}</p>
-                  </div>
-                  <div className="rounded-lg border border-border p-3">
-                    <p className="text-xs text-muted-foreground">Files</p>
-                    <p className="text-lg font-semibold text-foreground">{detailQuery.data.filesCount}</p>
-                  </div>
-                  <div className="rounded-lg border border-border p-3">
-                    <p className="text-xs text-muted-foreground">Enrollments</p>
-                    <p className="text-lg font-semibold text-foreground">{detailQuery.data.enrollmentsCount}</p>
-                  </div>
-                  <div className="rounded-lg border border-border p-3">
-                    <p className="text-xs text-muted-foreground">Created</p>
-                    <p className="text-sm font-medium text-foreground">{formatDate(detailQuery.data.createdAt)}</p>
-                  </div>
-                </div>
-              </>
-            ) : null}
-          </div>
-        </SheetContent>
-      </Sheet>
+      <ReassignTutorDialog
+        course={reassignTarget}
+        open={!!reassignTarget}
+        onOpenChange={(open) => !open && setReassignTarget(null)}
+      />
     </div>
   );
 }

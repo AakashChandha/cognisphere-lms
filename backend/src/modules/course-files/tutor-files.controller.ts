@@ -1,8 +1,11 @@
 import {
+  BadRequestException,
+  Body,
   Controller,
   Delete,
   Get,
   Param,
+  Patch,
   Post,
   Query,
   Req,
@@ -11,7 +14,14 @@ import {
   UseInterceptors,
 } from '@nestjs/common';
 import { FileInterceptor } from '@nestjs/platform-express';
-import { ApiBearerAuth, ApiBody, ApiConsumes, ApiOperation, ApiTags } from '@nestjs/swagger';
+import {
+  ApiBearerAuth,
+  ApiBody,
+  ApiConsumes,
+  ApiOkResponse,
+  ApiOperation,
+  ApiTags,
+} from '@nestjs/swagger';
 import type { Request, Response } from 'express';
 import { AuditAction } from '@prisma/client';
 import { Roles } from '../../common/decorators/roles.decorator';
@@ -24,10 +34,12 @@ import { AuditLogService } from '../audit-logs/audit-log.service';
 import { LocalStorageService } from '../storage/local-storage.service';
 import { CourseFilesService } from './course-files.service';
 import { CourseFileResponseDto } from './dto/course-file-response.dto';
+import { FileStreamUrlDto } from './dto/file-stream-url.dto';
+import { UpdateCourseFileDto } from './dto/update-course-file.dto';
 
 @ApiTags('Tutors')
 @ApiBearerAuth('access-token')
-@Roles(AppRole.TUTOR)
+@Roles(AppRole.TUTOR, AppRole.MASTER)
 @Controller('tutor')
 export class TutorFilesController {
   constructor(
@@ -47,8 +59,11 @@ export class TutorFilesController {
       },
     },
   })
+  // Storage/limits come from `MulterModule.registerAsync` in the module:
+  // the file is streamed to disk and rejected with 413 if it exceeds
+  // MAX_FILE_SIZE_BYTES.
   @UseInterceptors(FileInterceptor('file'))
-  @ApiOperation({ summary: 'Upload a file to a course' })
+  @ApiOperation({ summary: 'Upload a file to a course (PDF, PPTX, MP4 video, …)' })
   async upload(
     @Param('courseId') courseId: string,
     @UploadedFile() file: Express.Multer.File,
@@ -57,8 +72,12 @@ export class TutorFilesController {
   ) {
     const lessonId = (req.body as { lessonId?: string }).lessonId || undefined;
 
+    if (!file) {
+      throw new BadRequestException('No file was uploaded');
+    }
+
     const uploaded = await this.filesService.uploadForTutor(user.id, courseId, lessonId, {
-      buffer: file.buffer,
+      tempPath: file.path,
       originalName: file.originalname,
       mimeType: file.mimetype,
       sizeBytes: file.size,
@@ -93,11 +112,29 @@ export class TutorFilesController {
     return this.filesService.findAllForCourseForTutor(user.id, courseId, query);
   }
 
+  @Get('files/:id/stream-url')
+  @ApiOperation({ summary: 'Get a short-lived URL to play/preview a file owned by the tutor' })
+  @ApiOkResponse({ type: FileStreamUrlDto })
+  getStreamUrl(@Param('id') id: string, @CurrentUser() user: AuthenticatedUser) {
+    return this.filesService.createStreamUrlForTutor(user.id, id);
+  }
+
   @Get('files/:id/stream')
-  @ApiOperation({ summary: 'Download/stream a file owned by the tutor' })
+  @ApiOperation({ summary: 'Download a file owned by the tutor (attachment)' })
   async stream(@Param('id') id: string, @CurrentUser() user: AuthenticatedUser, @Res() res: Response) {
     const file = await this.filesService.getForTutorDownload(user.id, id);
     res.download(this.localStorage.resolveAbsolutePath(file.storageKey), file.originalName);
+  }
+
+  @Patch('files/:id')
+  @ApiOperation({ summary: 'Attach a file to a lesson, or detach it (lessonId: null)' })
+  async update(
+    @Param('id') id: string,
+    @Body() dto: UpdateCourseFileDto,
+    @CurrentUser() user: AuthenticatedUser,
+  ) {
+    const file = await this.filesService.setLessonForTutor(user.id, id, dto.lessonId ?? null);
+    return { message: 'File updated successfully', data: file };
   }
 
   @Delete('files/:id')

@@ -1,7 +1,7 @@
 import { apiClient, unwrap, unwrapPaginated } from "./client";
 import { cleanParams } from "./query-string";
 import type { ApiEnvelope, PaginationQuery } from "@/types/api";
-import type { CourseFile } from "@/types/course-file";
+import type { CourseFile, FileStreamUrl } from "@/types/course-file";
 
 function toRelativeApiUrl(url: string): string {
   // `apiClient`'s baseURL already includes `/api`; strip it from URLs returned
@@ -9,7 +9,16 @@ function toRelativeApiUrl(url: string): string {
   return url.startsWith("/api/") ? url.slice(4) : url;
 }
 
-/** Authenticated fetch of a course file as a Blob for in-browser preview. */
+/**
+ * Ask the API for a short-lived, same-origin URL that `<video>` / `<iframe>`
+ * can open directly. Those elements cannot send the Bearer header, and a
+ * video must be streamed with Range requests rather than downloaded whole.
+ */
+export async function getFileStreamUrl(file: CourseFile): Promise<FileStreamUrl> {
+  return unwrap(apiClient.get<ApiEnvelope<FileStreamUrl>>(toRelativeApiUrl(file.streamUrlEndpoint)));
+}
+
+/** Authenticated fetch of a course file as a Blob (PPTX preview needs the bytes in memory). */
 export async function fetchFileBlob(url: string): Promise<Blob> {
   const response = await apiClient.get<Blob>(toRelativeApiUrl(url), {
     responseType: "blob",
@@ -39,6 +48,8 @@ export const tutorFilesApi = {
     return unwrap(
       apiClient.post<ApiEnvelope<CourseFile>>(`/tutor/courses/${courseId}/files`, formData, {
         headers: { "Content-Type": "multipart/form-data" },
+        // Course videos can be hundreds of MB on an ordinary upload link.
+        timeout: 30 * 60 * 1000,
         onUploadProgress: (event) => {
           if (onProgress && event.total) {
             onProgress(Math.round((event.loaded / event.total) * 100));
@@ -46,6 +57,10 @@ export const tutorFilesApi = {
         },
       }),
     );
+  },
+  /** Attach to a lesson, or pass null to make the file a course-wide resource. */
+  setLesson(id: string, lessonId: string | null) {
+    return unwrap(apiClient.patch<ApiEnvelope<CourseFile>>(`/tutor/files/${id}`, { lessonId }));
   },
   remove(id: string) {
     return unwrap(apiClient.delete<ApiEnvelope<null>>(`/tutor/files/${id}`));
@@ -61,6 +76,16 @@ export const studentFilesApi = {
   listForCourse(courseId: string, params: PaginationQuery = {}) {
     return unwrapPaginated(
       apiClient.get<ApiEnvelope<CourseFile[]>>(`/student/courses/${courseId}/files`, {
+        params: cleanParams(params),
+      }),
+    );
+  },
+};
+
+export const masterFilesApi = {
+  listForCourse(courseId: string, params: PaginationQuery = {}) {
+    return unwrapPaginated(
+      apiClient.get<ApiEnvelope<CourseFile[]>>(`/master/courses/${courseId}/files`, {
         params: cleanParams(params),
       }),
     );

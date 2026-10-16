@@ -48,7 +48,7 @@ export default function MasterAnnouncementsPage() {
   const createMutation = useMutation({
     mutationFn: (values: AnnouncementFormValues) => announcementsApi.create(values),
     onSuccess: () => {
-      toast.success("Announcement posted successfully");
+      toast.success("Announcement posted");
       setFormState({ open: false, announcement: null });
       invalidate();
     },
@@ -56,10 +56,10 @@ export default function MasterAnnouncementsPage() {
   });
 
   const updateMutation = useMutation({
-    mutationFn: (values: AnnouncementFormValues & { id: string }) =>
-      announcementsApi.update(values.id, values),
+    mutationFn: ({ id, ...values }: AnnouncementFormValues & { id: string }) =>
+      announcementsApi.update(id, values),
     onSuccess: () => {
-      toast.success("Announcement updated successfully");
+      toast.success("Announcement updated");
       setFormState({ open: false, announcement: null });
       invalidate();
     },
@@ -69,7 +69,7 @@ export default function MasterAnnouncementsPage() {
   const deleteMutation = useMutation({
     mutationFn: (id: string) => announcementsApi.remove(id),
     onSuccess: () => {
-      toast.success("Announcement deleted successfully");
+      toast.success("Announcement deleted");
       setDeleteTarget(null);
       invalidate();
     },
@@ -123,7 +123,7 @@ export default function MasterAnnouncementsPage() {
                       <Button
                         size="icon-sm"
                         variant="ghost"
-                        aria-label="Edit"
+                        aria-label={`Edit "${announcement.title}"`}
                         onClick={() => setFormState({ open: true, announcement })}
                       >
                         <Pencil className="size-4" />
@@ -131,14 +131,14 @@ export default function MasterAnnouncementsPage() {
                       <Button
                         size="icon-sm"
                         variant="ghost"
-                        aria-label="Delete"
+                        aria-label={`Delete "${announcement.title}"`}
                         onClick={() => setDeleteTarget(announcement)}
                       >
                         <Trash2 className="size-4 text-destructive" />
                       </Button>
                     </div>
                   </div>
-                  <p className="text-sm text-muted-foreground">{announcement.content}</p>
+                  <p className="whitespace-pre-wrap text-sm text-muted-foreground">{announcement.content}</p>
                   <p className="text-xs text-muted-foreground">
                     {announcement.authorName}
                     {announcement.courseTitle ? ` · ${announcement.courseTitle}` : ""} ·{" "}
@@ -164,8 +164,9 @@ export default function MasterAnnouncementsPage() {
       <ConfirmDialog
         open={!!deleteTarget}
         onOpenChange={(open) => !open && setDeleteTarget(null)}
-        title="Delete this announcement?"
-        confirmLabel="Delete"
+        title={deleteTarget ? `Delete "${deleteTarget.title}"?` : "Delete this announcement?"}
+        description="It disappears for everyone who could see it. This cannot be undone."
+        confirmLabel="Delete announcement"
         destructive
         isLoading={deleteMutation.isPending}
         onConfirm={() => {

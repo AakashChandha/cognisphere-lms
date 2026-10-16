@@ -7,5 +7,12 @@ export interface CourseFile {
   mimeType: string;
   sizeBytes: number;
   downloadUrl: string;
+  /** GET this to receive a short-lived URL the browser can open directly (video/PDF). */
+  streamUrlEndpoint: string;
   createdAt: string;
+}
+
+export interface FileStreamUrl {
+  url: string;
+  expiresInSeconds: number;
 }

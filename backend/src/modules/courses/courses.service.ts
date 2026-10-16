@@ -5,7 +5,7 @@ import {
   Injectable,
   NotFoundException,
 } from '@nestjs/common';
-import { CourseStatus, Prisma } from '@prisma/client';
+import { CourseStatus, Prisma, RoleName } from '@prisma/client';
 import { PrismaService } from '../../prisma/prisma.service';
 import { buildPaginatedResult } from '../../common/utils/pagination.util';
 import { PaginatedResult } from '../../common/interfaces/paginated-result.interface';
@@ -15,7 +15,7 @@ import { PaginationQueryDto } from '../../common/dto/pagination-query.dto';
 import { CreateCourseDto } from './dto/create-course.dto';
 import { UpdateCourseDto } from './dto/update-course.dto';
 import { QueryCourseDto } from './dto/query-course.dto';
-import { CourseResponseDto } from './dto/course-response.dto';
+import { CourseProgressDto, CourseResponseDto } from './dto/course-response.dto';
 
 const COURSE_INCLUDE = {
   tutor: { include: { user: true } },
@@ -33,13 +33,26 @@ type CourseWithRelations = Prisma.CourseGetPayload<{ include: typeof COURSE_INCL
 export class CoursesService {
   constructor(private readonly prisma: PrismaService) {}
 
-  async createForTutor(tutorUserId: string, dto: CreateCourseDto): Promise<CourseResponseDto> {
-    const tutor = await this.getTutorOrThrow(tutorUserId);
+  /**
+   * A tutor always owns the course they create. A Master may hand it to any
+   * active tutor via `dto.tutorId`, or leave it unassigned (`tutorId` null).
+   */
+  async createForTutor(userId: string, dto: CreateCourseDto): Promise<CourseResponseDto> {
+    let tutorId: string | null;
+    if (await this.isMaster(userId)) {
+      const tutor = dto.tutorId ? await this.findAssignableTutor(dto.tutorId) : null;
+      if (dto.tutorId && !tutor) {
+        throw new BadRequestException('Tutor not found');
+      }
+      tutorId = tutor?.id ?? null;
+    } else {
+      tutorId = (await this.getTutorOrThrow(userId)).id;
+    }
     const slug = await this.generateUniqueSlug(dto.title);
 
     const course = await this.prisma.course.create({
       data: {
-        tutorId: tutor.id,
+        tutorId,
         title: dto.title,
         description: dto.description,
         thumbnailUrl: dto.thumbnailUrl,
@@ -53,10 +66,13 @@ export class CoursesService {
   }
 
   async findAllForTutor(
-    tutorUserId: string,
+    userId: string,
     query: QueryCourseDto,
   ): Promise<PaginatedResult<CourseResponseDto>> {
-    const tutor = await this.getTutorOrThrow(tutorUserId);
+    if (await this.isMaster(userId)) {
+      return this.findAllForMaster(query);
+    }
+    const tutor = await this.getTutorOrThrow(userId);
 
     return this.paginate(
       {
@@ -72,6 +88,7 @@ export class CoursesService {
     return this.paginate(
       {
         ...(query.status ? { status: query.status } : {}),
+        ...(query.unassigned === 'true' ? { tutorId: null } : {}),
         ...(query.search ? { title: { contains: query.search, mode: 'insensitive' } } : {}),
       },
       query,
@@ -87,23 +104,28 @@ export class CoursesService {
       throw new NotFoundException('Student profile not found');
     }
 
-    return this.paginate(
+    const result = await this.paginate(
       {
+        status: CourseStatus.PUBLISHED,
         enrollments: { some: { studentId: student.id } },
         ...(query.search ? { title: { contains: query.search, mode: 'insensitive' } } : {}),
       },
       query,
     );
+
+    const withProgress = await Promise.all(
+      result.items.map(async (course) => ({
+        ...course,
+        progress: await this.getProgress(student.id, course.id),
+      })),
+    );
+
+    return { ...result, items: withProgress };
   }
 
-  async findOneForTutor(tutorUserId: string, courseId: string): Promise<CourseResponseDto> {
-    const tutor = await this.getTutorOrThrow(tutorUserId);
-    const course = await this.getCourseOrThrow(courseId);
-
-    if (course.tutorId !== tutor.id) {
-      throw new ForbiddenException('You do not have access to this course');
-    }
-
+  /** Reads are allowed on a deactivated course so the tutor can see why it is locked. */
+  async findOneForTutor(userId: string, courseId: string): Promise<CourseResponseDto> {
+    const course = await this.assertTutorOwnsCourse(userId, courseId, { forRead: true });
     return this.toResponseDto(course);
   }
 
@@ -115,15 +137,106 @@ export class CoursesService {
       where: { studentId_courseId: { studentId: student?.id ?? '', courseId } },
     });
 
-    if (!isEnrolled) {
+    if (!isEnrolled || !student) {
       throw new ForbiddenException('You are not enrolled in this course');
     }
+    this.assertAvailableToStudents(course);
 
-    return this.toResponseDto(course);
+    return { ...this.toResponseDto(course), progress: await this.getProgress(student.id, course.id) };
+  }
+
+  /**
+   * How far a student is through a course. "Next" is the first lesson, in
+   * course order, that is not completed yet (lessons are never locked).
+   */
+  async getProgress(studentId: string, courseId: string): Promise<CourseProgressDto> {
+    const [lessons, completions] = await Promise.all([
+      this.prisma.lesson.findMany({
+        where: { courseId },
+        select: { id: true, title: true },
+        orderBy: { orderIndex: 'asc' },
+      }),
+      this.prisma.lessonCompletion.findMany({
+        where: { studentId, lesson: { courseId } },
+        select: { lessonId: true },
+      }),
+    ]);
+
+    const completed = new Set(completions.map((c) => c.lessonId));
+    const next = lessons.find((l) => !completed.has(l.id)) ?? null;
+
+    return {
+      completedLessons: lessons.filter((l) => completed.has(l.id)).length,
+      totalLessons: lessons.length,
+      nextLessonId: next?.id ?? null,
+      nextLessonTitle: next?.title ?? null,
+    };
+  }
+
+  /** Master only: hand a course (typically one whose tutor left) to another tutor. */
+  async reassignTutor(courseId: string, tutorId: string): Promise<CourseResponseDto> {
+    await this.getCourseOrThrow(courseId);
+    if (!(await this.findAssignableTutor(tutorId))) {
+      throw new NotFoundException('Tutor not found');
+    }
+
+    const updated = await this.prisma.course.update({
+      where: { id: courseId },
+      data: { tutorId },
+      include: COURSE_INCLUDE,
+    });
+    return this.toResponseDto(updated);
+  }
+
+  /** Master only: enrolled students of any course. */
+  async listEnrolledStudentsForMaster(
+    courseId: string,
+    query: PaginationQueryDto,
+  ): Promise<PaginatedResult<StudentResponseDto>> {
+    await this.getCourseOrThrow(courseId);
+    return this.paginateEnrolledStudents(courseId, query);
   }
 
   async findOneForMaster(courseId: string): Promise<CourseResponseDto> {
     return this.toResponseDto(await this.getCourseOrThrow(courseId));
+  }
+
+  /**
+   * Master only: pull a course out of circulation. Students stop seeing it
+   * and the tutor can read but not change it until an admin reactivates.
+   */
+  async deactivate(courseId: string, reason: string): Promise<CourseResponseDto> {
+    const course = await this.getCourseOrThrow(courseId);
+    if (course.status === CourseStatus.DEACTIVATED) {
+      throw new BadRequestException('Course is already deactivated');
+    }
+
+    const updated = await this.prisma.course.update({
+      where: { id: courseId },
+      data: {
+        status: CourseStatus.DEACTIVATED,
+        deactivatedAt: new Date(),
+        deactivationReason: reason,
+        publishedAt: null,
+      },
+      include: COURSE_INCLUDE,
+    });
+    return this.toResponseDto(updated);
+  }
+
+  /** Master only: back to draft; the course is published again through the normal flow. */
+  async reactivate(courseId: string): Promise<CourseResponseDto> {
+    const course = await this.getCourseOrThrow(courseId);
+    if (course.status !== CourseStatus.DEACTIVATED) {
+      throw new BadRequestException('Only a deactivated course can be reactivated');
+    }
+
+    const updated = await this.prisma.course.update({
+      where: { id: courseId },
+      data: { status: CourseStatus.DRAFT, deactivatedAt: null, deactivationReason: null },
+      include: COURSE_INCLUDE,
+    });
+    return this.toResponseDto(updated);
   }
 
   async updateForTutor(
@@ -172,6 +285,23 @@ export class CoursesService {
     return this.toResponseDto(updated);
   }
 
+  /** Take a published course back to draft so students no longer see it. */
+  async unpublish(tutorUserId: string, courseId: string): Promise<CourseResponseDto> {
+    const course = await this.assertTutorOwnsCourse(tutorUserId, courseId);
+
+    if (course.status !== CourseStatus.PUBLISHED) {
+      throw new BadRequestException('Only a published course can be unpublished');
+    }
+
+    const updated = await this.prisma.course.update({
+      where: { id: courseId },
+      data: { status: CourseStatus.DRAFT, publishedAt: null },
+      include: COURSE_INCLUDE,
+    });
+
+    return this.toResponseDto(updated);
+  }
+
   async archive(tutorUserId: string, courseId: string): Promise<CourseResponseDto> {
     await this.assertTutorOwnsCourse(tutorUserId, courseId);
 
@@ -209,8 +339,14 @@ export class CoursesService {
     courseId: string,
     query: PaginationQueryDto,
   ): Promise<PaginatedResult<StudentResponseDto>> {
-    await this.assertTutorOwnsCourse(tutorUserId, courseId);
+    await this.assertTutorOwnsCourse(tutorUserId, courseId, { forRead: true });
+    return this.paginateEnrolledStudents(courseId, query);
+  }
 
+  private async paginateEnrolledStudents(
+    courseId: string,
+    query: PaginationQueryDto,
+  ): Promise<PaginatedResult<StudentResponseDto>> {
     const where: Prisma.StudentWhereInput = { enrollments: { some: { courseId } } };
 
     const [students, totalItems] = await Promise.all([
@@ -242,29 +378,76 @@ export class CoursesService {
     );
   }
 
-  /** Used by LessonsService/CourseFilesService to verify tutor ownership before mutating nested resources. */
-  async assertTutorOwnsCourse(tutorUserId: string, courseId: string): Promise<CourseWithRelations> {
-    const tutor = await this.getTutorOrThrow(tutorUserId);
+  /**
+   * Gate for every tutor-facing course operation (also used by Lessons,
+   * CourseFiles and Announcements for nested resources).
+   *
+   * - A Master passes for any course, deactivated or not.
+   * - A tutor must own the course. By default the call is treated as a
+   *   mutation and is refused while the course is deactivated; pass
+   *   `{ forRead: true }` for listings/detail so the tutor can still see it.
+   */
+  async assertTutorOwnsCourse(
+    userId: string,
+    courseId: string,
+    options: { forRead?: boolean } = {},
+  ): Promise<CourseWithRelations> {
     const course = await this.getCourseOrThrow(courseId);
 
+    if (await this.isMaster(userId)) {
+      return course;
+    }
+
+    const tutor = await this.getTutorOrThrow(userId);
     if (course.tutorId !== tutor.id) {
       throw new ForbiddenException('You do not have access to this course');
+    }
+
+    if (!options.forRead && course.status === CourseStatus.DEACTIVATED) {
+      throw new ForbiddenException(
+        `This course was deactivated by an administrator: ${course.deactivationReason ?? 'no reason given'}`,
+      );
     }
 
     return course;
   }
 
+  /** Students only ever get to published courses they are enrolled in. */
   async assertStudentEnrolled(studentUserId: string, courseId: string): Promise<void> {
     const student = await this.prisma.student.findUnique({ where: { userId: studentUserId } });
     const enrollment = student
       ? await this.prisma.enrollment.findUnique({
           where: { studentId_courseId: { studentId: student.id, courseId } },
+          include: { course: { select: { status: true } } },
         })
       : null;
 
     if (!enrollment) {
       throw new ForbiddenException('You are not enrolled in this course');
     }
+    this.assertAvailableToStudents(enrollment.course);
+  }
+
+  private assertAvailableToStudents(course: { status: CourseStatus }): void {
+    if (course.status !== CourseStatus.PUBLISHED) {
+      throw new ForbiddenException('This course is not available');
+    }
+  }
+
+  private async isMaster(userId: string): Promise<boolean> {
+    const count = await this.prisma.userRole.count({
+      where: { userId, role: { name: RoleName.MASTER } },
+    });
+    return count > 0;
+  }
+
+  /** A tutor a course may be assigned to; null when unknown, 400 when the account is disabled. */
+  private async findAssignableTutor(tutorId: string) {
+    const tutor = await this.prisma.tutor.findUnique({ where: { id: tutorId }, include: { user: true } });
+    if (tutor && !tutor.user.isActive) {
+      throw new BadRequestException('That tutor account is disabled. Enable it first or pick another tutor.');
+    }
+    return tutor;
   }
 
   private async paginate(
@@ -323,15 +506,19 @@ export class CoursesService {
       description: course.description,
       status: course.status,
       thumbnailUrl: course.thumbnailUrl,
-      tutor: {
-        id: course.tutor.id,
-        firstName: course.tutor.user.firstName,
-        lastName: course.tutor.user.lastName,
-      },
+      tutor: course.tutor
+        ? {
+            id: course.tutor.id,
+            firstName: course.tutor.user.firstName,
+            lastName: course.tutor.user.lastName,
+          }
+        : null,
       lessonsCount: course._count.lessons,
       filesCount: course._count.files,
       enrollmentsCount: course._count.enrollments,
       publishedAt: course.publishedAt,
+      deactivatedAt: course.deactivatedAt,
+      deactivationReason: course.deactivationReason,
       createdAt: course.createdAt,
       updatedAt: course.updatedAt,
     };

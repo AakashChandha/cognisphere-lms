@@ -20,7 +20,10 @@ export const envValidationSchema = Joi.object({
 
   STORAGE_DRIVER: Joi.string().valid('local', 's3').default('local'),
   STORAGE_LOCAL_ROOT: Joi.string().default('storage'),
-  MAX_FILE_SIZE_BYTES: Joi.number().default(25 * 1024 * 1024),
+  // Course material includes video, so the default allows 2 GB per file.
+  // Uploads are streamed to disk by Multer, never buffered in memory.
+  MAX_FILE_SIZE_BYTES: Joi.number().default(2 * 1024 * 1024 * 1024),
+  STREAM_URL_TTL_SECONDS: Joi.number().default(3600),
 
   THROTTLE_TTL_SECONDS: Joi.number().default(60),
   THROTTLE_LIMIT: Joi.number().default(120),

@@ -3,12 +3,18 @@ import { LessonsService } from './lessons.service';
 import { TutorLessonsController } from './tutor-lessons.controller';
 import { StudentLessonsController } from './student-lessons.controller';
 import { StudentCourseLessonsController } from './student-course-lessons.controller';
+import { MasterLessonsController } from './master-lessons.controller';
 import { CoursesModule } from '../courses/courses.module';
 import { AuditLogsModule } from '../audit-logs/audit-logs.module';
 
 @Module({
   imports: [CoursesModule, AuditLogsModule],
-  controllers: [TutorLessonsController, StudentLessonsController, StudentCourseLessonsController],
+  controllers: [
+    TutorLessonsController,
+    StudentLessonsController,
+    StudentCourseLessonsController,
+    MasterLessonsController,
+  ],
   providers: [LessonsService],
   exports: [LessonsService],
 })

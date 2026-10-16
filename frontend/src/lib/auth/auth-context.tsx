@@ -16,6 +16,8 @@ interface AuthContextValue {
   primaryRole: AppRole | null;
   login: (email: string, password: string) => Promise<AuthenticatedUser>;
   logout: () => Promise<void>;
+  /** Re-fetch the current user (e.g. after a profile edit) so the top bar updates. */
+  refreshUser: () => Promise<void>;
 }
 
 const AuthContext = React.createContext<AuthContextValue | undefined>(undefined);
@@ -33,7 +35,8 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   React.useEffect(() => {
     setUnauthorizedHandler(() => {
       clearSession();
-      router.push("/login");
+      // Read the URL at the moment the session dies, so the user comes back here after signing in.
+      router.push(loginPathWithReturn(typeof window === "undefined" ? null : window.location.pathname));
     });
   }, [clearSession, router]);
 
@@ -72,6 +75,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       firstName: result.user.firstName,
       lastName: result.user.lastName,
       roles: result.user.roles,
+      mustChangePassword: result.user.mustChangePassword,
     };
     setUser(authenticatedUser);
     return authenticatedUser;
@@ -93,6 +97,15 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     }
   }, [clearSession, router]);
 
+  const refreshUser = React.useCallback(async () => {
+    try {
+      const me = await authApi.me();
+      setUser(me);
+    } catch {
+      // The interceptor already handles a dead session; nothing else to do.
+    }
+  }, []);
+
   const value = React.useMemo<AuthContextValue>(
     () => ({
       user,
@@ -101,8 +114,9 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       primaryRole: user ? getPrimaryRole(user.roles) : null,
       login,
       logout,
+      refreshUser,
     }),
-    [user, isLoading, login, logout],
+    [user, isLoading, login, logout, refreshUser],
   );
 
   return <AuthContext.Provider value={value}>{children}</AuthContext.Provider>;
@@ -114,4 +128,18 @@ export function useAuth(): AuthContextValue {
     throw new Error("useAuth must be used within an AuthProvider");
   }
   return context;
+}
+
+/** `/login?next=/where/they/were`, but never bounce back to an auth page. */
+export function loginPathWithReturn(currentPath: string | null): string {
+  if (!currentPath || currentPath === "/" || currentPath.startsWith("/login") || currentPath.startsWith("/change-password")) {
+    return "/login";
+  }
+  return `/login?next=${encodeURIComponent(currentPath)}`;
+}
+
+/** Only accept same-origin paths so `next` can never send someone off-site. */
+export function safeReturnPath(next: string | null): string | null {
+  if (!next || !next.startsWith("/") || next.startsWith("//")) return null;
+  return next;
 }

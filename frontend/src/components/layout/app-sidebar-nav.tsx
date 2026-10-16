@@ -27,7 +27,7 @@ export function AppSidebarNav({ navItems, roleLabel, onNavigate }: AppSidebarNav
         </div>
       </div>
 
-      <nav className="flex-1 space-y-1 overflow-y-auto px-3">
+      <nav aria-label="Main" className="flex-1 space-y-1 overflow-y-auto px-3">
         {navItems.map((item) => {
           const isActive = pathname === item.href || pathname.startsWith(`${item.href}/`);
           const Icon = item.icon;
@@ -36,6 +36,7 @@ export function AppSidebarNav({ navItems, roleLabel, onNavigate }: AppSidebarNav
               key={item.href}
               href={item.href}
               onClick={onNavigate}
+              aria-current={isActive ? "page" : undefined}
               className={cn(
                 "flex items-center gap-3 rounded-lg px-3 py-2 text-sm font-medium transition-colors",
                 isActive

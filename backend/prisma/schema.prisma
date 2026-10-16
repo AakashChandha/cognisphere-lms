@@ -24,6 +24,7 @@ enum CourseStatus {
   DRAFT
   PUBLISHED
   ARCHIVED
+  DEACTIVATED
 }
 
 enum AnnouncementAudience {
@@ -58,6 +59,9 @@ enum AuditAction {
   ANNOUNCEMENT_DELETED
   ENROLLMENT_CREATED
   ENROLLMENT_REMOVED
+  COURSE_TUTOR_CHANGED
+  COURSE_DEACTIVATED
+  COURSE_REACTIVATED
 }
 
 // ---------------------------------------------------------------------------
@@ -72,6 +76,8 @@ model User {
   lastName     String   @map("last_name")
   avatarUrl    String?  @map("avatar_url")
   isActive     Boolean  @default(true) @map("is_active")
+  /// Set when an admin mints or resets the password; cleared when the user picks their own.
+  mustChangePassword Boolean @default(false) @map("must_change_password")
   createdAt    DateTime @default(now()) @map("created_at")
   updatedAt    DateTime @updatedAt @map("updated_at")
 
@@ -140,6 +146,7 @@ model Student {
 
   user        User         @relation(fields: [userId], references: [id], onDelete: Cascade)
   enrollments Enrollment[]
+  lessonCompletions LessonCompletion[]
 
   @@map("students")
 }
@@ -165,7 +172,8 @@ model Tutor {
 
 model Course {
   id            String       @id @default(uuid())
-  tutorId       String       @map("tutor_id")
+  /// Null when the owning tutor was removed: the course stays as company material until an admin reassigns it.
+  tutorId       String?      @map("tutor_id")
   title         String
   slug          String       @unique
   description   String
@@ -173,10 +181,13 @@ model Course {
   thumbnailUrl  String?      @map("thumbnail_url")
   publishedAt   DateTime?    @map("published_at")
   archivedAt    DateTime?    @map("archived_at")
+  /// Set by an administrator; while present the course is hidden from students and read-only for its tutor.
+  deactivatedAt       DateTime? @map("deactivated_at")
+  deactivationReason  String?   @map("deactivation_reason")
   createdAt     DateTime     @default(now()) @map("created_at")
   updatedAt     DateTime     @updatedAt @map("updated_at")
 
-  tutor         Tutor          @relation(fields: [tutorId], references: [id], onDelete: Cascade)
+  tutor         Tutor?         @relation(fields: [tutorId], references: [id], onDelete: SetNull)
   lessons       Lesson[]
   files         CourseFile[]
   enrollments   Enrollment[]
@@ -196,8 +207,9 @@ model Lesson {
   createdAt   DateTime @default(now()) @map("created_at")
   updatedAt   DateTime @updatedAt @map("updated_at")
 
-  course Course       @relation(fields: [courseId], references: [id], onDelete: Cascade)
-  files  CourseFile[]
+  course      Course             @relation(fields: [courseId], references: [id], onDelete: Cascade)
+  files       CourseFile[]
+  completions LessonCompletion[]
 
   @@map("lessons")
   @@index([courseId])
@@ -235,6 +247,21 @@ model Enrollment {
   @@unique([studentId, courseId])
   @@map("enrollments")
   @@index([courseId])
+}
+
+/// One row per lesson a student has marked (or auto-marked) as finished.
+model LessonCompletion {
+  id          String   @id @default(uuid())
+  studentId   String   @map("student_id")
+  lessonId    String   @map("lesson_id")
+  completedAt DateTime @default(now()) @map("completed_at")
+
+  student Student @relation(fields: [studentId], references: [id], onDelete: Cascade)
+  lesson  Lesson  @relation(fields: [lessonId], references: [id], onDelete: Cascade)
+
+  @@unique([studentId, lessonId])
+  @@map("lesson_completions")
+  @@index([lessonId])
 }
 
 // ---------------------------------------------------------------------------

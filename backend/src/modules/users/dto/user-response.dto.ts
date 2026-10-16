@@ -12,6 +12,8 @@ export class UserResponseDto {
   @ApiProperty() lastName: string;
   @ApiProperty({ nullable: true }) avatarUrl: string | null;
   @ApiProperty() isActive: boolean;
+  @ApiProperty({ description: 'True until the user replaces an admin-issued temporary password' })
+  mustChangePassword: boolean;
   @ApiProperty({ enum: AppRole, isArray: true }) roles: AppRole[];
   @ApiProperty() createdAt: Date;
 }

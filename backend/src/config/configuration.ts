@@ -15,6 +15,8 @@ export interface AppConfig {
     driver: 'local' | 's3';
     localRoot: string;
     maxFileSizeBytes: number;
+    /** Lifetime of signed stream URLs handed to the browser for inline playback. */
+    streamUrlTtlSeconds: number;
   };
   throttle: {
     ttlSeconds: number;
@@ -45,7 +47,8 @@ export default (): AppConfig => ({
   storage: {
     driver: (process.env.STORAGE_DRIVER as 'local' | 's3') ?? 'local',
     localRoot: process.env.STORAGE_LOCAL_ROOT ?? 'storage',
-    maxFileSizeBytes: Number(process.env.MAX_FILE_SIZE_BYTES ?? 25 * 1024 * 1024),
+    maxFileSizeBytes: Number(process.env.MAX_FILE_SIZE_BYTES ?? 2 * 1024 * 1024 * 1024),
+    streamUrlTtlSeconds: Number(process.env.STREAM_URL_TTL_SECONDS ?? 3600),
   },
   throttle: {
     ttlSeconds: Number(process.env.THROTTLE_TTL_SECONDS ?? 60),

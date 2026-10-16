@@ -30,7 +30,7 @@ import { EnrollStudentDto } from './dto/enroll-student.dto';
 
 @ApiTags('Tutors')
 @ApiBearerAuth('access-token')
-@Roles(AppRole.TUTOR)
+@Roles(AppRole.TUTOR, AppRole.MASTER)
 @Controller('tutor/courses')
 export class TutorCoursesController {
   constructor(
@@ -115,6 +115,22 @@ export class TutorCoursesController {
       ipAddress: req.ip,
     });
     return { message: 'Course published successfully', data: course };
+  }
+
+  @Post(':id/unpublish')
+  @HttpCode(HttpStatus.OK)
+  @ApiOperation({ summary: 'Return a published course to draft' })
+  async unpublish(@Param('id') id: string, @CurrentUser() user: AuthenticatedUser, @Req() req: Request) {
+    const course = await this.coursesService.unpublish(user.id, id);
+    await this.auditLog.record({
+      actorId: user.id,
+      action: AuditAction.COURSE_UPDATED,
+      entityType: 'Course',
+      entityId: id,
+      metadata: { unpublished: true },
+      ipAddress: req.ip,
+    });
+    return { message: 'Course moved back to draft', data: course };
   }
 
   @Post(':id/archive')

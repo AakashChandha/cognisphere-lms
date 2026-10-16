@@ -7,10 +7,13 @@ export class CreateLessonDto {
   @MinLength(3)
   title: string;
 
-  @ApiProperty({ example: 'In this lesson we install Node.js, VS Code and Git...' })
+  @ApiPropertyOptional({
+    example: '## Why manage health and safety?\n\nThree reasons: moral, legal and financial...',
+    description: 'Lesson notes in Markdown. Optional, so a video-only lesson needs no filler text.',
+  })
+  @IsOptional()
   @IsString()
-  @MinLength(10)
-  content: string;
+  content?: string;
 
   @ApiPropertyOptional({ description: 'Position within the course, defaults to next available' })
   @IsOptional()

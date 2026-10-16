@@ -1,4 +1,4 @@
-import { Body, Controller, Delete, Get, Param, Post, Put, Req } from '@nestjs/common';
+import { Body, Controller, Delete, Get, Param, Patch, Post, Put, Req } from '@nestjs/common';
 import { ApiBearerAuth, ApiOperation, ApiTags } from '@nestjs/swagger';
 import type { Request } from 'express';
 import { AuditAction } from '@prisma/client';
@@ -10,10 +10,11 @@ import { AuditLogService } from '../audit-logs/audit-log.service';
 import { LessonsService } from './lessons.service';
 import { CreateLessonDto } from './dto/create-lesson.dto';
 import { UpdateLessonDto } from './dto/update-lesson.dto';
+import { ReorderLessonsDto } from './dto/reorder-lessons.dto';
 
 @ApiTags('Tutors')
 @ApiBearerAuth('access-token')
-@Roles(AppRole.TUTOR)
+@Roles(AppRole.TUTOR, AppRole.MASTER)
 @Controller('tutor')
 export class TutorLessonsController {
   constructor(
@@ -44,6 +45,26 @@ export class TutorLessonsController {
       ipAddress: req.ip,
     });
     return { message: 'Lesson created successfully', data: lesson };
+  }
+
+  @Patch('courses/:courseId/lessons/reorder')
+  @ApiOperation({ summary: 'Reorder the lessons of a course (drag and drop)' })
+  async reorder(
+    @Param('courseId') courseId: string,
+    @Body() dto: ReorderLessonsDto,
+    @CurrentUser() user: AuthenticatedUser,
+    @Req() req: Request,
+  ) {
+    const lessons = await this.lessonsService.reorderForTutor(user.id, courseId, dto);
+    await this.auditLog.record({
+      actorId: user.id,
+      action: AuditAction.LESSON_UPDATED,
+      entityType: 'Course',
+      entityId: courseId,
+      metadata: { reorder: dto.lessonIds },
+      ipAddress: req.ip,
+    });
+    return { message: 'Lesson order saved', data: lessons };
   }
 
   @Put('lessons/:id')

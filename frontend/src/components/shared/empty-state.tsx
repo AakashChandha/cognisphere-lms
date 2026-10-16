@@ -5,7 +5,7 @@ import { cn } from "@/lib/utils";
 interface EmptyStateProps {
   icon?: LucideIcon;
   title: string;
-  description?: string;
+  description?: React.ReactNode;
   action?: React.ReactNode;
   className?: string;
 }
@@ -23,7 +23,7 @@ export function EmptyState({ icon: Icon = Inbox, title, description, action, cla
       </div>
       <div className="space-y-1">
         <p className="text-sm font-medium text-foreground">{title}</p>
-        {description ? <p className="max-w-sm text-sm text-muted-foreground">{description}</p> : null}
+        {description ? <div className="max-w-sm text-sm text-muted-foreground">{description}</div> : null}
       </div>
       {action ? <div className="mt-2">{action}</div> : null}
     </div>

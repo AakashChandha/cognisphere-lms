@@ -8,10 +8,9 @@ export class UpdateLessonDto {
   @MinLength(3)
   title?: string;
 
-  @ApiPropertyOptional()
+  @ApiPropertyOptional({ description: 'Lesson notes in Markdown' })
   @IsOptional()
   @IsString()
-  @MinLength(10)
   content?: string;
 
   @ApiPropertyOptional()

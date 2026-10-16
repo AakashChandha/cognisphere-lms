@@ -5,8 +5,8 @@ import type { AuthTokens } from "@/types/auth";
 
 /**
  * Relative base URL: in every deployment (local `next dev`, Docker dev, and
- * Docker prod behind Nginx) requests to `/api/*` are proxied to the NestJS
- * backend - see `next.config.ts` rewrites and `nginx/default.conf.template`.
+ * Docker prod behind Caddy) requests to `/api/*` are proxied to the NestJS
+ * backend - see `next.config.ts` rewrites and `caddy/Caddyfile`.
  * This keeps the browser client same-origin, avoiding CORS entirely.
  */
 export const apiClient = axios.create({
@@ -36,22 +36,33 @@ interface RetriableConfig extends InternalAxiosRequestConfig {
   _retried?: boolean;
 }
 
-let refreshPromise: Promise<string | null> | null = null;
+let refreshPromise: Promise<RefreshOutcome> | null = null;
 
-async function refreshAccessToken(): Promise<string | null> {
+/** `rejected` = the server said no (log out); `unreachable` = network/5xx (keep the session). */
+interface RefreshOutcome {
+  token: string | null;
+  reason?: "rejected" | "unreachable";
+}
+
+export const NETWORK_ERROR_MESSAGE = "We can't reach the server right now. Check your connection and try again.";
+
+async function refreshAccessToken(): Promise<RefreshOutcome> {
   const refreshToken = tokenStorage.getRefreshToken();
-  if (!refreshToken) return null;
+  if (!refreshToken) return { token: null, reason: "rejected" };
 
   try {
     const response = await refreshClient.post<ApiEnvelope<AuthTokens>>("/auth/refresh", {
       refreshToken,
     });
     const tokens = response.data.data;
-    if (!tokens) return null;
+    if (!tokens) return { token: null, reason: "rejected" };
     tokenStorage.setTokens(tokens.accessToken, tokens.refreshToken);
-    return tokens.accessToken;
-  } catch {
-    return null;
+    return { token: tokens.accessToken };
+  } catch (error) {
+    const status = (error as AxiosError).response?.status;
+    // Only a definite 401/403 from the API means the session is dead. A
+    // backend restart (502/503) or a dropped connection must not wipe it.
+    return { token: null, reason: status === 401 || status === 403 ? "rejected" : "unreachable" };
   }
 }
 
@@ -69,22 +80,53 @@ apiClient.interceptors.response.use(
         refreshPromise = null;
       });
 
-      const newAccessToken = await refreshPromise;
+      const outcome = await refreshPromise;
 
-      if (newAccessToken) {
-        originalRequest.headers.set("Authorization", `Bearer ${newAccessToken}`);
+      if (outcome.token) {
+        originalRequest.headers.set("Authorization", `Bearer ${outcome.token}`);
         return apiClient(originalRequest);
       }
 
-      tokenStorage.clear();
-      unauthorizedHandler?.();
+      if (outcome.reason === "rejected") {
+        tokenStorage.clear();
+        unauthorizedHandler?.();
+      }
     }
 
-    const message = error.response?.data?.message ?? error.message ?? "An unexpected error occurred.";
-    const errors = error.response?.data?.errors ?? null;
+    // No response at all: DNS, offline, backend restarting behind the proxy.
+    if (!error.response) {
+      throw new ApiError(NETWORK_ERROR_MESSAGE, 0, null);
+    }
+
+    const message = humanizeMessage(error.response.data?.message, status);
+    const errors = error.response.data?.errors ?? null;
     throw new ApiError(message, status ?? 0, errors);
   },
 );
+
+/** Replace bare HTTP phrases ("Bad Request") with something a person can act on. */
+function humanizeMessage(message: string | undefined, status: number | undefined): string {
+  const bare = !message || /^(bad request|internal server error|unauthorized|forbidden|not found)$/i.test(message);
+  if (!bare) return message;
+  switch (status) {
+    case 400:
+      return "Some of the information wasn't accepted. Check the form and try again.";
+    case 401:
+      return "Your session has expired. Please sign in again.";
+    case 403:
+      return "You don't have permission to do that.";
+    case 404:
+      return "That item no longer exists.";
+    case 413:
+      return "That file is too large.";
+    case 502:
+    case 503:
+    case 504:
+      return NETWORK_ERROR_MESSAGE;
+    default:
+      return "Something went wrong on our side. Please try again in a moment.";
+  }
+}
 
 /** Unwraps the standard `{ data }` envelope, throwing an `ApiError` if the request failed. */
 export async function unwrap<T>(promise: Promise<{ data: ApiEnvelope<T> }>): Promise<T> {

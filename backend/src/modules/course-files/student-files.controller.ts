@@ -1,5 +1,5 @@
 import { Controller, Get, Param, Query, Res } from '@nestjs/common';
-import { ApiBearerAuth, ApiOperation, ApiTags } from '@nestjs/swagger';
+import { ApiBearerAuth, ApiOkResponse, ApiOperation, ApiTags } from '@nestjs/swagger';
 import type { Response } from 'express';
 import { Roles } from '../../common/decorators/roles.decorator';
 import { CurrentUser } from '../../common/decorators/current-user.decorator';
@@ -10,6 +10,7 @@ import { PaginationQueryDto } from '../../common/dto/pagination-query.dto';
 import { LocalStorageService } from '../storage/local-storage.service';
 import { CourseFilesService } from './course-files.service';
 import { CourseFileResponseDto } from './dto/course-file-response.dto';
+import { FileStreamUrlDto } from './dto/file-stream-url.dto';
 
 @ApiTags('Students')
 @ApiBearerAuth('access-token')
@@ -28,9 +29,18 @@ export class StudentFilesController {
     return this.filesService.findAllForStudent(user.id, query);
   }
 
+  @Get(':id/stream-url')
+  @ApiOperation({
+    summary: 'Get a short-lived URL the browser can open directly (video playback, PDF preview)',
+  })
+  @ApiOkResponse({ type: FileStreamUrlDto })
+  getStreamUrl(@Param('id') id: string, @CurrentUser() user: AuthenticatedUser) {
+    return this.filesService.createStreamUrlForStudent(user.id, id);
+  }
+
   @Get(':id')
   @ApiOperation({
-    summary: 'Stream a course material file (inline for in-browser PDF/PPTX preview; also used for download)',
+    summary: 'Fetch a course material file with the Bearer token (used for PPTX preview and downloads)',
   })
   async download(@Param('id') id: string, @CurrentUser() user: AuthenticatedUser, @Res() res: Response) {
     const file = await this.filesService.getForStudentDownload(user.id, id);

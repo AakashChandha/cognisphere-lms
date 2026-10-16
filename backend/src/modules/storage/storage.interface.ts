@@ -6,7 +6,11 @@ export interface StoredFileRef {
 }
 
 export interface UploadFileInput {
-  buffer: Buffer;
+  /**
+   * Absolute path of the file Multer already streamed to disk. The storage
+   * backend takes ownership of it (moves or uploads, then removes it).
+   */
+  tempPath: string;
   originalName: string;
   mimeType: string;
   /** Logical folder/prefix, e.g. `courses/{courseId}`. */

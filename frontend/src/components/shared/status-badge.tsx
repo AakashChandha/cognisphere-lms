@@ -15,6 +15,7 @@ const COURSE_STATUS_TONE: Record<string, StatusTone> = {
   DRAFT: "neutral",
   PUBLISHED: "success",
   ARCHIVED: "warning",
+  DEACTIVATED: "danger",
 };
 
 const ACTIVE_STATUS_TONE: Record<string, StatusTone> = {

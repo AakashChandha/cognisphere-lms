@@ -14,7 +14,7 @@ export function AppProviders({ children }: { children: React.ReactNode }) {
         <AuthProvider>
           <TooltipProvider delay={200}>
             {children}
-            <Toaster richColors closeButton position="top-right" />
+            <Toaster richColors closeButton position="bottom-right" visibleToasts={3} />
           </TooltipProvider>
         </AuthProvider>
       </QueryProvider>

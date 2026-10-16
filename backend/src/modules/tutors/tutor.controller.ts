@@ -38,6 +38,7 @@ export class TutorController {
   }
 
   @Get('students/directory')
+  @Roles(AppRole.TUTOR, AppRole.MASTER)
   @ApiOperation({
     summary: 'List every student in the system, for selecting who to enroll into a course',
   })

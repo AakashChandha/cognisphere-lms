@@ -25,6 +25,9 @@ export const tutorCoursesApi = {
   publish(id: string) {
     return unwrap(apiClient.post<ApiEnvelope<Course>>(`/tutor/courses/${id}/publish`));
   },
+  unpublish(id: string) {
+    return unwrap(apiClient.post<ApiEnvelope<Course>>(`/tutor/courses/${id}/unpublish`));
+  },
   archive(id: string) {
     return unwrap(apiClient.post<ApiEnvelope<Course>>(`/tutor/courses/${id}/archive`));
   },
@@ -62,5 +65,19 @@ export const masterCoursesApi = {
   },
   getById(id: string) {
     return unwrap(apiClient.get<ApiEnvelope<Course>>(`/master/courses/${id}`));
+  },
+  listStudents(id: string, params: PaginationQuery) {
+    return unwrapPaginated(
+      apiClient.get<ApiEnvelope<Student[]>>(`/master/courses/${id}/students`, { params: cleanParams(params) }),
+    );
+  },
+  reassignTutor(id: string, tutorId: string) {
+    return unwrap(apiClient.patch<ApiEnvelope<Course>>(`/master/courses/${id}/tutor`, { tutorId }));
+  },
+  deactivate(id: string, reason: string) {
+    return unwrap(apiClient.post<ApiEnvelope<Course>>(`/master/courses/${id}/deactivate`, { reason }));
+  },
+  reactivate(id: string) {
+    return unwrap(apiClient.post<ApiEnvelope<Course>>(`/master/courses/${id}/reactivate`));
   },
 };

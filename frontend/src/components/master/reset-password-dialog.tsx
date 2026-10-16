@@ -14,18 +14,19 @@ import {
   DialogTitle,
 } from "@/components/ui/dialog";
 import { Button } from "@/components/ui/button";
-import { Input } from "@/components/ui/input";
 import {
   Form,
   FormControl,
+  FormDescription,
   FormField,
   FormItem,
   FormLabel,
   FormMessage,
 } from "@/components/ui/form";
+import { PasswordField } from "@/components/master/password-field";
 
 const schema = z.object({
-  newPassword: z.string().min(8, "Password must be at least 8 characters"),
+  newPassword: z.string().min(8, "Use at least 8 characters"),
 });
 
 export type ResetPasswordValues = z.infer<typeof schema>;
@@ -56,11 +57,11 @@ export function ResetPasswordDialog({
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className="sm:max-w-sm">
+      <DialogContent className="sm:max-w-md">
         <DialogHeader>
-          <DialogTitle>Reset password</DialogTitle>
+          <DialogTitle>Reset password{userName ? ` for ${userName}` : ""}</DialogTitle>
           <DialogDescription>
-            {userName ? `Set a new temporary password for ${userName}.` : "Set a new temporary password."}
+            They are signed out everywhere and must use this temporary password next time, then choose a new one.
           </DialogDescription>
         </DialogHeader>
         <Form {...form}>
@@ -70,10 +71,11 @@ export function ResetPasswordDialog({
               name="newPassword"
               render={({ field }) => (
                 <FormItem>
-                  <FormLabel>New password</FormLabel>
+                  <FormLabel>Temporary password</FormLabel>
                   <FormControl>
-                    <Input type="password" placeholder="At least 8 characters" {...field} />
+                    <PasswordField value={field.value} onChange={field.onChange} onBlur={field.onBlur} name={field.name} />
                   </FormControl>
+                  <FormDescription>Copy it before you close this window; it is not shown again.</FormDescription>
                   <FormMessage />
                 </FormItem>
               )}

@@ -19,6 +19,7 @@ import {
   FormMessage,
 } from "@/components/ui/form";
 import { profileApi } from "@/lib/api/profile.api";
+import { useAuth } from "@/lib/auth/auth-context";
 import type { AppRole } from "@/types/auth";
 import type { Profile } from "@/types/people";
 import { ApiError } from "@/types/api";
@@ -42,6 +43,7 @@ interface ProfileFormProps {
 
 export function ProfileForm({ role, profile, showExpertise = false, showBio = true }: ProfileFormProps) {
   const queryClient = useQueryClient();
+  const { refreshUser } = useAuth();
 
   const form = useForm<ProfileFormValues>({
     resolver: zodResolver(profileSchema),
@@ -58,7 +60,8 @@ export function ProfileForm({ role, profile, showExpertise = false, showBio = tr
     mutationFn: (values: ProfileFormValues) => profileApi.updateProfile(role, values),
     onSuccess: (updated) => {
       queryClient.setQueryData(["profile", role], updated);
-      toast.success("Profile updated successfully");
+      void refreshUser();
+      toast.success("Profile updated");
     },
     onError: (error) => {
       toast.error(error instanceof ApiError ? error.message : "Failed to update profile");
@@ -100,6 +103,7 @@ export function ProfileForm({ role, profile, showExpertise = false, showBio = tr
         <FormItem>
           <FormLabel>Email</FormLabel>
           <Input value={profile.email} disabled />
+          <p className="text-xs text-muted-foreground">Ask an administrator if your email needs to change.</p>
         </FormItem>
 
         <FormField
@@ -109,7 +113,7 @@ export function ProfileForm({ role, profile, showExpertise = false, showBio = tr
             <FormItem>
               <FormLabel>Phone</FormLabel>
               <FormControl>
-                <Input placeholder="+1 555 0100" {...field} />
+                <Input type="tel" placeholder="Include your country code" {...field} />
               </FormControl>
               <FormMessage />
             </FormItem>
@@ -124,7 +128,7 @@ export function ProfileForm({ role, profile, showExpertise = false, showBio = tr
               <FormItem>
                 <FormLabel>Areas of expertise</FormLabel>
                 <FormControl>
-                  <Input placeholder="e.g. Web Development, Data Science" {...field} />
+                  <Input placeholder="e.g. NEBOSH IGC, fire safety, risk assessment" {...field} />
                 </FormControl>
                 <FormMessage />
               </FormItem>

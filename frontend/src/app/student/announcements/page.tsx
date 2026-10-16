@@ -47,7 +47,7 @@ export default function StudentAnnouncementsPage() {
                     <h3 className="font-medium text-foreground">{announcement.title}</h3>
                     <AudienceBadge audience={announcement.audience} />
                   </div>
-                  <p className="text-sm text-muted-foreground">{announcement.content}</p>
+                  <p className="whitespace-pre-wrap text-sm text-muted-foreground">{announcement.content}</p>
                   <p className="text-xs text-muted-foreground">
                     {announcement.authorName}
                     {announcement.courseTitle ? ` · ${announcement.courseTitle}` : ""} ·{" "}

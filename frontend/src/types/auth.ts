@@ -11,6 +11,7 @@ export interface User {
   lastName: string;
   avatarUrl: string | null;
   isActive: boolean;
+  mustChangePassword: boolean;
   roles: AppRole[];
   createdAt: string;
 }
@@ -41,4 +42,6 @@ export interface AuthenticatedUser {
   firstName: string;
   lastName: string;
   roles: AppRole[];
+  /** True until the user replaces an admin-issued temporary password. */
+  mustChangePassword: boolean;
 }

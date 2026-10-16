@@ -1,5 +1,12 @@
-import { BadRequestException, Inject, Injectable, NotFoundException } from '@nestjs/common';
-import { Prisma } from '@prisma/client';
+import {
+  BadRequestException,
+  Inject,
+  Injectable,
+  NotFoundException,
+  UnauthorizedException,
+} from '@nestjs/common';
+import { JwtService } from '@nestjs/jwt';
+import { CourseStatus, Prisma, RoleName } from '@prisma/client';
 import { PrismaService } from '../../prisma/prisma.service';
 import { AppConfigService } from '../../config/app-config.service';
 import { buildPaginatedResult } from '../../common/utils/pagination.util';
@@ -7,16 +14,49 @@ import { PaginatedResult } from '../../common/interfaces/paginated-result.interf
 import { PaginationQueryDto } from '../../common/dto/pagination-query.dto';
 import { CoursesService } from '../courses/courses.service';
 import { IStorageService, STORAGE_SERVICE } from '../storage/storage.interface';
+import { LocalStorageService } from '../storage/local-storage.service';
 import { CourseFileResponseDto } from './dto/course-file-response.dto';
+import { FileStreamUrlDto } from './dto/file-stream-url.dto';
 
 const FILE_INCLUDE = { course: { select: { id: true, title: true, tutorId: true } } } satisfies Prisma.CourseFileInclude;
 type CourseFileWithCourse = Prisma.CourseFileGetPayload<{ include: typeof FILE_INCLUDE }>;
 
 export interface UploadFileArgs {
-  buffer: Buffer;
+  /** Where Multer streamed the upload to (inside the storage volume). */
+  tempPath: string;
   originalName: string;
   mimeType: string;
   sizeBytes: number;
+}
+
+/**
+ * Students can only ever *view* material in the browser (no downloads), so
+ * the only types worth accepting are the ones the student UI can render:
+ * PDF, PowerPoint (.pptx) and MP4/WebM video.
+ */
+const ALLOWED_EXTENSIONS = new Set(['pdf', 'pptx', 'mp4', 'm4v', 'webm']);
+const ALLOWED_MIME_TYPES = new Set([
+  'application/pdf',
+  'application/vnd.openxmlformats-officedocument.presentationml.presentation',
+  'video/mp4',
+  'video/x-m4v',
+  'video/webm',
+]);
+
+export function isAllowedUploadType(originalName: string, mimeType: string): boolean {
+  const ext = originalName.includes('.') ? originalName.split('.').pop()!.toLowerCase() : '';
+  // Browsers are inconsistent about MIME for .pptx/.m4v; accept when either
+  // the extension or the declared type is one we can display.
+  return ALLOWED_EXTENSIONS.has(ext) || ALLOWED_MIME_TYPES.has((mimeType || '').toLowerCase());
+}
+
+type FileViewerRole = 'TUTOR' | 'STUDENT' | 'MASTER';
+
+/** Payload of the short-lived token embedded in a signed stream URL. */
+interface StreamTokenPayload {
+  sub: string;
+  fileId: string;
+  type: 'stream';
 }
 
 @Injectable()
@@ -25,6 +65,8 @@ export class CourseFilesService {
     private readonly prisma: PrismaService,
     private readonly coursesService: CoursesService,
     private readonly config: AppConfigService,
+    private readonly jwtService: JwtService,
+    private readonly localStorage: LocalStorageService,
     @Inject(STORAGE_SERVICE) private readonly storage: IStorageService,
   ) {}
 
@@ -34,25 +76,39 @@ export class CourseFilesService {
     lessonId: string | undefined,
     file: UploadFileArgs,
   ): Promise<CourseFileResponseDto> {
-    await this.coursesService.assertTutorOwnsCourse(tutorUserId, courseId);
+    // Multer has already written the upload to disk. Whatever fails below,
+    // the temp file must not be left behind on the volume.
+    let storageKey: string | undefined;
+    try {
+      await this.coursesService.assertTutorOwnsCourse(tutorUserId, courseId);
 
-    if (file.sizeBytes > this.config.storage.maxFileSizeBytes) {
-      throw new BadRequestException('File exceeds the maximum allowed size');
-    }
-
-    if (lessonId) {
-      const lesson = await this.prisma.lesson.findUnique({ where: { id: lessonId } });
-      if (!lesson || lesson.courseId !== courseId) {
-        throw new BadRequestException('Lesson does not belong to this course');
+      if (file.sizeBytes > this.config.storage.maxFileSizeBytes) {
+        throw new BadRequestException('File exceeds the maximum allowed size');
       }
-    }
 
-    const { storageKey } = await this.storage.upload({
-      buffer: file.buffer,
-      originalName: file.originalName,
-      mimeType: file.mimeType,
-      folder: `courses/${courseId}`,
-    });
+      if (!isAllowedUploadType(file.originalName, file.mimeType)) {
+        throw new BadRequestException(
+          'Only PDF, PowerPoint (.pptx) and MP4 video can be uploaded, because students view material in the browser.',
+        );
+      }
+
+      if (lessonId) {
+        const lesson = await this.prisma.lesson.findUnique({ where: { id: lessonId } });
+        if (!lesson || lesson.courseId !== courseId) {
+          throw new BadRequestException('Lesson does not belong to this course');
+        }
+      }
+
+      ({ storageKey } = await this.storage.upload({
+        tempPath: file.tempPath,
+        originalName: file.originalName,
+        mimeType: file.mimeType,
+        folder: `courses/${courseId}`,
+      }));
+    } catch (error) {
+      await this.localStorage.discardTemp(file.tempPath);
+      throw error;
+    }
 
     const record = await this.prisma.courseFile.create({
       data: {
@@ -70,17 +126,24 @@ export class CourseFilesService {
     return this.toResponseDto(record, 'TUTOR');
   }
 
+  /** Files across the tutor's courses; a Master sees every file. */
   async findAllForTutor(
-    tutorUserId: string,
+    userId: string,
     query: PaginationQueryDto,
   ): Promise<PaginatedResult<CourseFileResponseDto>> {
-    const tutor = await this.prisma.tutor.findUnique({ where: { userId: tutorUserId } });
-    if (!tutor) {
-      throw new NotFoundException('Tutor profile not found');
+    const isMaster =
+      (await this.prisma.userRole.count({ where: { userId, role: { name: RoleName.MASTER } } })) > 0;
+    let courseFilter: Prisma.CourseFileWhereInput = {};
+    if (!isMaster) {
+      const tutor = await this.prisma.tutor.findUnique({ where: { userId } });
+      if (!tutor) {
+        throw new NotFoundException('Tutor profile not found');
+      }
+      courseFilter = { course: { tutorId: tutor.id } };
     }
 
     const where: Prisma.CourseFileWhereInput = {
-      course: { tutorId: tutor.id },
+      ...courseFilter,
       ...(query.search ? { originalName: { contains: query.search, mode: 'insensitive' } } : {}),
     };
 
@@ -113,7 +176,7 @@ export class CourseFilesService {
     }
 
     const where: Prisma.CourseFileWhereInput = {
-      course: { enrollments: { some: { studentId: student.id } } },
+      course: { status: CourseStatus.PUBLISHED, enrollments: { some: { studentId: student.id } } },
       ...(query.search ? { originalName: { contains: query.search, mode: 'insensitive' } } : {}),
     };
 
@@ -141,7 +204,7 @@ export class CourseFilesService {
     courseId: string,
     query: PaginationQueryDto,
   ): Promise<PaginatedResult<CourseFileResponseDto>> {
-    await this.coursesService.assertTutorOwnsCourse(tutorUserId, courseId);
+    await this.coursesService.assertTutorOwnsCourse(tutorUserId, courseId, { forRead: true });
     return this.paginateForCourse(courseId, query, 'TUTOR');
   }
 
@@ -154,10 +217,26 @@ export class CourseFilesService {
     return this.paginateForCourse(courseId, query, 'STUDENT');
   }
 
+  async findAllForCourseForMaster(
+    courseId: string,
+    query: PaginationQueryDto,
+  ): Promise<PaginatedResult<CourseFileResponseDto>> {
+    return this.paginateForCourse(courseId, query, 'MASTER');
+  }
+
+  async getForMaster(fileId: string): Promise<CourseFileWithCourse> {
+    return this.getFileOrThrow(fileId);
+  }
+
+  async createStreamUrlForMaster(masterUserId: string, fileId: string): Promise<FileStreamUrlDto> {
+    const file = await this.getFileOrThrow(fileId);
+    return this.signStreamUrl(masterUserId, file.id);
+  }
+
   private async paginateForCourse(
     courseId: string,
     query: PaginationQueryDto,
-    role: 'TUTOR' | 'STUDENT',
+    role: FileViewerRole,
   ): Promise<PaginatedResult<CourseFileResponseDto>> {
     const where: Prisma.CourseFileWhereInput = {
       courseId,
@@ -183,6 +262,30 @@ export class CourseFilesService {
     );
   }
 
+  /** Attach a file to a lesson of the same course, or detach it (lessonId null). */
+  async setLessonForTutor(
+    tutorUserId: string,
+    fileId: string,
+    lessonId: string | null,
+  ): Promise<CourseFileResponseDto> {
+    const file = await this.getFileOrThrow(fileId);
+    await this.coursesService.assertTutorOwnsCourse(tutorUserId, file.courseId);
+
+    if (lessonId) {
+      const lesson = await this.prisma.lesson.findUnique({ where: { id: lessonId } });
+      if (!lesson || lesson.courseId !== file.courseId) {
+        throw new BadRequestException('Lesson does not belong to this course');
+      }
+    }
+
+    const updated = await this.prisma.courseFile.update({
+      where: { id: fileId },
+      data: { lessonId },
+      include: FILE_INCLUDE,
+    });
+    return this.toResponseDto(updated, 'TUTOR');
+  }
+
   async removeForTutor(tutorUserId: string, fileId: string): Promise<void> {
     const file = await this.getFileOrThrow(fileId);
     await this.coursesService.assertTutorOwnsCourse(tutorUserId, file.courseId);
@@ -193,7 +296,7 @@ export class CourseFilesService {
 
   async getForTutorDownload(tutorUserId: string, fileId: string): Promise<CourseFileWithCourse> {
     const file = await this.getFileOrThrow(fileId);
-    await this.coursesService.assertTutorOwnsCourse(tutorUserId, file.courseId);
+    await this.coursesService.assertTutorOwnsCourse(tutorUserId, file.courseId, { forRead: true });
     return file;
   }
 
@@ -201,6 +304,53 @@ export class CourseFilesService {
     const file = await this.getFileOrThrow(fileId);
     await this.coursesService.assertStudentEnrolled(studentUserId, file.courseId);
     return file;
+  }
+
+  /**
+   * Issue a signed, single-file URL a student's browser can open directly
+   * (video player, PDF iframe). Enrollment is checked here, once; the stream
+   * route then only has to verify the token.
+   */
+  async createStreamUrlForStudent(studentUserId: string, fileId: string): Promise<FileStreamUrlDto> {
+    const file = await this.getForStudentDownload(studentUserId, fileId);
+    return this.signStreamUrl(studentUserId, file.id);
+  }
+
+  async createStreamUrlForTutor(tutorUserId: string, fileId: string): Promise<FileStreamUrlDto> {
+    const file = await this.getForTutorDownload(tutorUserId, fileId);
+    return this.signStreamUrl(tutorUserId, file.id);
+  }
+
+  /** Resolve the file a stream token grants access to, or reject it. */
+  async getForStreamToken(token: string, fileId: string): Promise<CourseFileWithCourse> {
+    let payload: StreamTokenPayload;
+    try {
+      payload = this.jwtService.verify<StreamTokenPayload>(token, {
+        secret: this.config.jwt.accessSecret,
+      });
+    } catch {
+      throw new UnauthorizedException('This link has expired. Reopen the file to get a new one.');
+    }
+
+    if (payload.type !== 'stream' || payload.fileId !== fileId) {
+      throw new UnauthorizedException('Stream token does not match this file');
+    }
+
+    return this.getFileOrThrow(fileId);
+  }
+
+  private signStreamUrl(userId: string, fileId: string): FileStreamUrlDto {
+    const expiresInSeconds = this.config.storage.streamUrlTtlSeconds;
+    const payload: StreamTokenPayload = { sub: userId, fileId, type: 'stream' };
+    const token = this.jwtService.sign(payload, {
+      secret: this.config.jwt.accessSecret,
+      expiresIn: expiresInSeconds,
+    });
+
+    return {
+      url: `/api/files/stream/${fileId}?token=${encodeURIComponent(token)}`,
+      expiresInSeconds,
+    };
   }
 
   private async getFileOrThrow(fileId: string): Promise<CourseFileWithCourse> {
@@ -211,7 +361,8 @@ export class CourseFilesService {
     return file;
   }
 
-  toResponseDto(file: CourseFileWithCourse, role: 'TUTOR' | 'STUDENT'): CourseFileResponseDto {
+  toResponseDto(file: CourseFileWithCourse, role: FileViewerRole): CourseFileResponseDto {
+    const base = role === 'TUTOR' ? '/api/tutor/files' : role === 'MASTER' ? '/api/master/files' : '/api/student/files';
     return {
       id: file.id,
       courseId: file.courseId,
@@ -220,8 +371,8 @@ export class CourseFilesService {
       originalName: file.originalName,
       mimeType: file.mimeType,
       sizeBytes: file.sizeBytes,
-      downloadUrl:
-        role === 'TUTOR' ? `/api/tutor/files/${file.id}/stream` : `/api/student/files/${file.id}`,
+      downloadUrl: role === 'TUTOR' ? `${base}/${file.id}/stream` : `${base}/${file.id}`,
+      streamUrlEndpoint: `${base}/${file.id}/stream-url`,
       createdAt: file.createdAt,
     };
   }

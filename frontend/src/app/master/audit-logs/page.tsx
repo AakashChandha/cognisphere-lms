@@ -19,6 +19,10 @@ import { formatDateTime, toTitleCase } from "@/lib/utils/format";
 import { AuditAction, type AuditLog } from "@/types/audit-log";
 
 const ACTION_OPTIONS = Object.values(AuditAction);
+const ACTION_ITEMS: Record<string, string> = {
+  ALL: "All actions",
+  ...Object.fromEntries(ACTION_OPTIONS.map((action) => [action, toTitleCase(action)])),
+};
 
 export default function MasterAuditLogsPage() {
   const { page, pageSize, search, setPage, setPageSize, setSearch } = usePaginationState();
@@ -48,8 +52,8 @@ export default function MasterAuditLogsPage() {
       <PageHeader title="Audit Logs" description="A record of significant actions taken across the system." />
 
       <div className="flex flex-col gap-3 sm:flex-row sm:items-center">
-        <SearchInput value={search} onChange={setSearch} placeholder="Search by entity type..." />
-        <Select value={actionFilter} onValueChange={(value) => setActionFilter(value ?? "ALL")}>
+        <SearchInput value={search} onChange={setSearch} placeholder="Filter by record type, e.g. Course" />
+        <Select items={ACTION_ITEMS} value={actionFilter} onValueChange={(value) => setActionFilter(value ?? "ALL")}>
           <SelectTrigger className="w-full sm:w-56">
             <SelectValue placeholder="Action" />
           </SelectTrigger>
@@ -72,6 +76,18 @@ export default function MasterAuditLogsPage() {
         isError={isError}
         onRetry={() => void refetch()}
         emptyTitle="No audit log entries found"
+        renderCard={(log) => (
+          <div className="space-y-1">
+            <div className="flex items-start justify-between gap-3">
+              <p className="font-medium text-foreground">{toTitleCase(log.action)}</p>
+              <span className="shrink-0 text-xs text-muted-foreground">{formatDateTime(log.createdAt)}</span>
+            </div>
+            <p className="text-xs text-muted-foreground">
+              {log.actorName ?? "System"} · {log.entityType}
+              {log.ipAddress ? ` · ${log.ipAddress}` : ""}
+            </p>
+          </div>
+        )}
       />
 
       {data ? <PaginationControls meta={data.meta} onPageChange={setPage} onPageSizeChange={setPageSize} /> : null}

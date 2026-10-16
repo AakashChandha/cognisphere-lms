@@ -14,6 +14,11 @@ export const tutorLessonsApi = {
   update(id: string, payload: UpdateLessonPayload) {
     return unwrap(apiClient.put<ApiEnvelope<Lesson>>(`/tutor/lessons/${id}`, payload));
   },
+  reorder(courseId: string, lessonIds: string[]) {
+    return unwrap(
+      apiClient.patch<ApiEnvelope<Lesson[]>>(`/tutor/courses/${courseId}/lessons/reorder`, { lessonIds }),
+    );
+  },
   remove(id: string) {
     return unwrap(apiClient.delete<ApiEnvelope<null>>(`/tutor/lessons/${id}`));
   },
@@ -25,5 +30,16 @@ export const studentLessonsApi = {
   },
   getById(id: string) {
     return unwrap(apiClient.get<ApiEnvelope<Lesson>>(`/student/lessons/${id}`));
+  },
+  setCompleted(id: string, completed: boolean) {
+    return completed
+      ? unwrap(apiClient.post<ApiEnvelope<null>>(`/student/lessons/${id}/complete`))
+      : unwrap(apiClient.delete<ApiEnvelope<null>>(`/student/lessons/${id}/complete`));
+  },
+};
+
+export const masterLessonsApi = {
+  listForCourse(courseId: string) {
+    return unwrap(apiClient.get<ApiEnvelope<Lesson[]>>(`/master/courses/${courseId}/lessons`));
   },
 };

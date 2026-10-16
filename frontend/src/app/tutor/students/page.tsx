@@ -8,7 +8,7 @@ import { DataTable, type DataTableColumn } from "@/components/shared/data-table"
 import { Avatar, AvatarFallback } from "@/components/ui/avatar";
 import { usePaginationState } from "@/hooks/use-pagination-state";
 import { tutorsApi } from "@/lib/api/tutors.api";
-import { formatDate, getInitials } from "@/lib/utils/format";
+import { formatDate, getInitials, pluralize } from "@/lib/utils/format";
 import type { Student } from "@/types/people";
 
 export default function TutorStudentsPage() {
@@ -37,14 +37,14 @@ export default function TutorStudentsPage() {
         </div>
       ),
     },
-    { id: "courses", header: "Enrolled courses", cell: (student) => student.enrolledCoursesCount },
+    { id: "courses", header: "Enrolled in", cell: (student) => pluralize(student.enrolledCoursesCount, "course") },
     { id: "joined", header: "Joined", cell: (student) => formatDate(student.createdAt) },
   ];
 
   return (
     <div className="space-y-6">
       <PageHeader title="My Students" description="Students enrolled across your courses." />
-      <SearchInput value={search} onChange={setSearch} placeholder="Search students..." />
+      <SearchInput value={search} onChange={setSearch} placeholder="Search students by name or email" />
 
       <DataTable
         columns={columns}
@@ -54,7 +54,7 @@ export default function TutorStudentsPage() {
         isError={isError}
         onRetry={() => void refetch()}
         emptyTitle="No students yet"
-        emptyDescription="Students will appear here once they enroll in your courses."
+        emptyDescription="Students appear here once you enrol them in one of your courses."
       />
 
       {data ? <PaginationControls meta={data.meta} onPageChange={setPage} onPageSizeChange={setPageSize} /> : null}

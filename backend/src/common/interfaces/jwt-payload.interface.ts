@@ -19,4 +19,5 @@ export interface AuthenticatedUser {
   firstName: string;
   lastName: string;
   roles: AppRole[];
+  mustChangePassword: boolean;
 }
