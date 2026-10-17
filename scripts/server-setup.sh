@@ -5,7 +5,8 @@
 # What it does:
 #   1. Installs Docker Engine + the compose plugin from Docker's apt repo
 #   2. Turns on container log rotation (so logs can never fill the disk)
-#   3. Adds a 2 GB swapfile (headroom for `next build` on a 4 GB box)
+#   3. Adds a 6 GB swapfile (`next build` peaks near 2 GB; this is the
+#      headroom that lets it finish on a 2 GB instance)
 #   4. Sets the timezone to Asia/Kolkata and enables unattended security
 #      updates with an automatic reboot at 04:00 if a kernel update needs it
 #   5. Installs the AWS CLI (used by backup.sh to talk to the Lightsail bucket)
@@ -51,9 +52,19 @@ JSON
 systemctl enable docker >/dev/null
 systemctl restart docker
 
-echo "==> Swap (2 GB)"
-if ! swapon --show | grep -q '/swapfile'; then
-  fallocate -l 2G /swapfile
+# Sized for the frontend build, not for runtime: `next build` alone peaks near
+# 2 GB, so a 2 GB instance needs real swap to get through a deploy. Steady
+# state uses far less. Override on a bigger box with SWAP_GB=2.
+SWAP_GB="${SWAP_GB:-6}"
+echo "==> Swap (${SWAP_GB} GB)"
+want_bytes=$((SWAP_GB * 1024 * 1024 * 1024))
+have_bytes=0
+[ -f /swapfile ] && have_bytes="$(stat -c %s /swapfile)"
+if [ "$have_bytes" -lt "$want_bytes" ]; then
+  # Re-runnable: grow an existing, smaller swapfile instead of leaving it.
+  swapoff /swapfile 2>/dev/null || true
+  rm -f /swapfile
+  fallocate -l "${SWAP_GB}G" /swapfile
   chmod 600 /swapfile
   mkswap /swapfile >/dev/null
   swapon /swapfile
