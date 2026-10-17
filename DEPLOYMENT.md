@@ -18,13 +18,13 @@ There are three production documents and they do different jobs:
    Laptop                GitHub                 Lightsail server              Users
 (code is written)   (shared copy of code)   (the computer that runs it)   (browsers)
 
-   write  ──push──▶   main branch   ──pull──▶   /opt/lms  ──rebuild──▶   learn.cognispheremc.com
+   write  ──push──▶   main branch   ──pull──▶   /home/ubuntu/cognisphere-lms  ──rebuild──▶   learn.cognispheremc.com
 ```
 
 Three things to understand and the rest follows:
 
 - **GitHub is the middleman.** We never copy files onto the server by hand. Code goes laptop → GitHub → server. That way the live site always matches a known version of the code, and we can go back to an older one.
-- **One rented computer runs everything.** It is an AWS Lightsail "instance" in Mumbai — think of it as a small always-on PC in a data centre. Our code lives on it in the folder `/opt/lms`.
+- **One rented computer runs everything.** It is an AWS Lightsail "instance" in Mumbai — think of it as a small always-on PC in a data centre. Our code lives on it in the folder `/home/ubuntu/cognisphere-lms`.
 - **Five programs run side by side on it**, each in its own sealed box (a *container*), so they cannot interfere with each other:
 
 | Container | In plain English |
@@ -48,7 +48,7 @@ Write these down here the first time, so nobody has to go hunting in the AWS con
 | Site address (what users type) | `https://learn.cognispheremc.com` |
 | Server static IP | `43.204.58.194` |
 | How to connect | `ssh ubuntu@43.204.58.194 -i ~/.ssh/lms-prod` (or `ssh lms` if the shortcut below is set up) |
-| Folder on the server | `/opt/lms` |
+| Folder on the server | `/home/ubuntu/cognisphere-lms` |
 | Code repository | `github.com/AakashChandha/cognisphere-lms`, branch `main` |
 | Backup bucket | `________________` |
 
@@ -74,8 +74,8 @@ The rest of this page says `ssh lms`. If you skipped the shortcut, use the long 
 - [ ] Domain name points at the static IP — `A` record `learn.cognispheremc.com` → `43.204.58.194`, plain DNS with no Cloudflare proxy in front (confirmed in place)
 - [ ] Backup bucket created and the instance attached to it under *Resource access*
 - [ ] A read-only **deploy key** added to GitHub so the server can fetch the code
-- [ ] Code cloned to `/opt/lms` and `sudo scripts/server-setup.sh` has been run once
-- [ ] `/opt/lms/.env` filled in with the real values — `SITE_ADDRESS=learn.cognispheremc.com` and `CORS_ORIGINS=https://learn.cognispheremc.com` (both must match the domain exactly, or the padlock or the logins will fail), plus the database password and JWT secrets — **and a copy saved in the password manager**, because that file exists nowhere else
+- [ ] Code cloned to `/home/ubuntu/cognisphere-lms` and `sudo scripts/server-setup.sh` has been run once
+- [ ] `/home/ubuntu/cognisphere-lms/.env` filled in with the real values — `SITE_ADDRESS=learn.cognispheremc.com` and `CORS_ORIGINS=https://learn.cognispheremc.com` (both must match the domain exactly, or the padlock or the logins will fail), plus the database password and JWT secrets — **and a copy saved in the password manager**, because that file exists nowhere else
 - [ ] Automatic daily snapshots and the UptimeRobot monitors switched on
 
 After that, publishing is the short routine below, every time, forever.
@@ -84,7 +84,7 @@ After that, publishing is the short routine below, every time, forever.
 
 ## 4. Publishing a change — the routine
 
-Six steps. Roughly ten minutes, most of it waiting.
+Seven steps. Roughly ten minutes, most of it waiting.
 
 ### Step 1 — On the laptop: check the work before sending it
 
@@ -122,10 +122,35 @@ ssh lms
 
 You are now typing commands *on the server in Mumbai* instead of on the laptop. The prompt changes to something like `ubuntu@ip-172-26-x-x:~$`.
 
-### Step 5 — Run the one publish command
+### Step 5 — Take a safety copy of the database (30 seconds)
+
+Do this every time, before publishing. It costs half a minute and it is the difference between "we undo it" and "we lost today's work".
 
 ```bash
-cd /opt/lms
+cd /home/ubuntu/cognisphere-lms
+sudo sh -c '. ./.env; docker exec lms-postgres pg_dump -U "$POSTGRES_USER" -d "$POSTGRES_DB"' | gzip > ~/pre-deploy-$(date +%Y%m%d-%H%M).sql.gz
+ls -lh ~/pre-deploy-*.sql.gz
+```
+
+That writes a complete copy of the filing cabinet — every user, course, lesson and progress record — into a dated file in your home folder on the server. The last line should show the file with a size next to it.
+
+**Why this and not just the nightly backup.** The nightly backup is up to 24 hours old. This one is seconds old, so if a publish goes wrong you lose nothing.
+
+**What it does *not* do.** Taking the copy does not change the live database in any way — it only reads. Nothing is ever put back automatically. A copy is restored only if a human decides to, deliberately, with the restore procedure in [OPERATIONS.md](./OPERATIONS.md) section 3. A normal, successful publish leaves the copy sitting there unused, which is exactly what you want.
+
+**Why it matters most for releases that change the database.** A publish can add new tables or columns (the `lms-migrate` step). Those changes only move forward: going back to older code does **not** undo them, so a rollback after a database change needs this copy. See section 8.
+
+Tidy up occasionally — these files are small but they accumulate:
+
+```bash
+ls -lh ~/pre-deploy-*.sql.gz          # look first
+rm ~/pre-deploy-2026*.sql.gz          # then delete the old ones you no longer want
+```
+
+### Step 6 — Run the one publish command
+
+```bash
+cd /home/ubuntu/cognisphere-lms
 sudo scripts/deploy.sh
 ```
 
@@ -144,7 +169,7 @@ lms-postgres    Up 2 minutes (healthy)
 
 **`Deployed.` plus every container `Up` is what success looks like.** The `lms-migrate` container is missing from that list on purpose — it does its job and exits.
 
-### Step 6 — Check the live site
+### Step 7 — Check the live site
 
 Three checks, in this order:
 
@@ -177,7 +202,7 @@ Two reassuring facts:
 ## 6. When to publish
 
 - Prefer **outside class hours**. The swap is seconds, not minutes, but a tutor mid-upload would have to start that upload again.
-- Never publish and then walk away. Stay for the three checks in Step 6.
+- Never publish and then walk away. Stay for the three checks in Step 7.
 - Avoid publishing on the way out on a Friday evening. If it needs undoing, you want to be awake.
 
 ---
@@ -187,7 +212,7 @@ Two reassuring facts:
 The deploy script prints the container list when it fails, and the first thing to look at is almost always the logs:
 
 ```bash
-cd /opt/lms
+cd /home/ubuntu/cognisphere-lms
 docker compose logs --tail=100 migrate backend
 ```
 
@@ -208,7 +233,7 @@ If it is broken and the cause is not obvious: **roll back first, investigate aft
 
 ```bash
 ssh lms
-cd /opt/lms
+cd /home/ubuntu/cognisphere-lms
 git log --oneline -5                 # pick the last known-good line; copy its short code
 git checkout <that code>
 sudo scripts/deploy.sh --no-pull     # rebuild what is now checked out, without fetching
@@ -216,7 +241,7 @@ sudo scripts/deploy.sh --no-pull     # rebuild what is now checked out, without 
 
 `--no-pull` is the important part: it tells the server to rebuild the older code you just selected instead of fetching the newest again.
 
-**One real limitation.** Database changes only move forward. If the bad release changed the *shape* of the database, going back to older code is not enough on its own — the database has to be restored from last night's backup as well (OPERATIONS.md, section 3). Say so to the developer rather than guessing.
+**One real limitation.** Database changes only move forward. If the bad release changed the *shape* of the database, going back to older code is not enough on its own — the database has to be restored as well: use the safety copy from Step 5 (`~/pre-deploy-*.sql.gz`, seconds old) in preference to last night's backup, which can be up to 24 hours stale (OPERATIONS.md, section 3). Say so to the developer rather than guessing.
 
 When the fix is ready and pushed, return the server to normal before deploying again:
 
@@ -244,9 +269,11 @@ cd ~/CGS/cognisphere-lms
 cd backend && npx tsc --noEmit && cd ../frontend && npx tsc --noEmit && npm run lint && cd ..
 git add -A && git commit -m "What changed" && git push origin main
 
-# Server: publish
+# Server: safety copy of the database, then publish
 ssh lms
-cd /opt/lms && sudo scripts/deploy.sh
+cd /home/ubuntu/cognisphere-lms
+sudo sh -c '. ./.env; docker exec lms-postgres pg_dump -U "$POSTGRES_USER" -d "$POSTGRES_DB"' | gzip > ~/pre-deploy-$(date +%Y%m%d-%H%M).sql.gz
+sudo scripts/deploy.sh
 
 # Check
 curl -s https://learn.cognispheremc.com/api/health   # expects "status":"ok"
@@ -256,10 +283,10 @@ docker compose ps                           # everything Up, backend (healthy)
 git log --oneline -5 && git checkout <sha> && sudo scripts/deploy.sh --no-pull
 ```
 
-One-line version, once the SSH shortcut exists:
+One-line version, once the SSH shortcut exists — safety copy included, because skipping it is the one shortcut that can cost you data:
 
 ```bash
-ssh lms 'cd /opt/lms && sudo scripts/deploy.sh'
+ssh lms 'cd /home/ubuntu/cognisphere-lms && sudo sh -c ". ./.env; docker exec lms-postgres pg_dump -U \$POSTGRES_USER -d \$POSTGRES_DB" | gzip > ~/pre-deploy-$(date +%Y%m%d-%H%M).sql.gz && sudo scripts/deploy.sh'
 ```
 
 Backups, restores, disk space, secret changes, instance resizing and the alerts you may receive: [OPERATIONS.md](./OPERATIONS.md).

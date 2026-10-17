@@ -2,13 +2,13 @@
 
 Day-to-day maintenance of the production LMS. If a task is not on this page, it is not part of the design.
 
-Everything runs on **one Lightsail instance** (Mumbai, 4 GB) from `/opt/lms` with `docker compose`. First-time setup lives in [PROD_DEPLOYMENT.md](./PROD_DEPLOYMENT.md), the plain-English walkthrough of publishing a change in [DEPLOYMENT.md](./DEPLOYMENT.md); the reasoning behind the setup is in the README's *Architecture Decisions* section.
+Everything runs on **one Lightsail instance** (Mumbai, 4 GB) from `/home/ubuntu/cognisphere-lms` with `docker compose`. First-time setup lives in [PROD_DEPLOYMENT.md](./PROD_DEPLOYMENT.md), the plain-English walkthrough of publishing a change in [DEPLOYMENT.md](./DEPLOYMENT.md); the reasoning behind the setup is in the README's *Architecture Decisions* section.
 
 Conventions used below:
 
 ```bash
 ssh lms            # an SSH alias for ubuntu@<static-ip>; see PROD_DEPLOYMENT.md
-cd /opt/lms        # every command assumes this directory
+cd /home/ubuntu/cognisphere-lms        # every command assumes this directory
 ```
 
 ---
@@ -35,7 +35,7 @@ cd /opt/lms        # every command assumes this directory
 
 ```bash
 ssh lms
-cd /opt/lms
+cd /home/ubuntu/cognisphere-lms
 sudo scripts/deploy.sh
 ```
 
@@ -52,7 +52,7 @@ The previous images are still on disk, so a failed build leaves the old version 
 ## 2. Roll back a bad release
 
 ```bash
-cd /opt/lms
+cd /home/ubuntu/cognisphere-lms
 git log --oneline -5             # find the last good commit
 git checkout <sha>
 sudo scripts/deploy.sh --no-pull
@@ -76,6 +76,18 @@ The script stops the app, drops and recreates the database, restores, and starts
 
 Rehearse this once right after go-live so you know it works before you need it.
 
+**Prefer a pre-deploy dump when one exists.** Every deploy is preceded by a hand-taken dump ([DEPLOYMENT.md](./DEPLOYMENT.md) Step 5), which is seconds old rather than up to 24 hours:
+
+```bash
+ls -lh ~/pre-deploy-*.sql.gz
+cd /home/ubuntu/cognisphere-lms
+gunzip -c ~/pre-deploy-20261017-2138.sql.gz > /tmp/restore.sql
+sudo sh -c '. ./.env; docker exec -i lms-postgres psql -U "$POSTGRES_USER" -d "$POSTGRES_DB"' < /tmp/restore.sql
+rm /tmp/restore.sql
+```
+
+Those are plain `pg_dump` SQL, not the custom-format `.dump` files `restore-db.sh` takes, so they go back in through `psql` as above — into an empty database, after `docker compose stop backend frontend`.
+
 ## 4. Restore uploaded files
 
 Course files are synced nightly to the bucket under `storage/`, mirroring the `backend_storage` Docker volume.
@@ -95,14 +107,14 @@ Lightsail takes a snapshot of the instance every day and keeps seven.
 
 1. Lightsail console → Snapshots → pick the latest → *Create new instance* (same plan).
 2. Networking → detach the static IP from the dead instance, attach it to the new one.
-3. SSH in, `cd /opt/lms`, `docker compose ps`. Everything should already be running.
+3. SSH in, `cd /home/ubuntu/cognisphere-lms`, `docker compose ps`. Everything should already be running.
 4. If the snapshot is older than the last backup, restore the newer dump and files (sections 3 and 4).
 5. Re-attach the new instance to the bucket under *Resource access* so backups keep working.
 
 ## 6. Rotate secrets
 
 ```bash
-cd /opt/lms
+cd /home/ubuntu/cognisphere-lms
 nano .env                         # change the value(s)
 docker compose up -d              # restarts only the containers whose env changed
 ```
@@ -121,9 +133,25 @@ docker system df
 du -sh /var/lib/docker/volumes/*/_data 2>/dev/null | sort -h
 ```
 
+**What normal looks like**, measured on 17 Oct 2026 with 4 users and 2 uploaded files — about 18 GB of the 58 GB usable, and almost none of it data:
+
+| Using it | Size | Is it garbage? |
+|---|---|---|
+| `/swapfile` | 6.0 GB | No — deliberate. `next build` needs ~2 GB and the instance has under 2 GB of RAM, so the build runs on swap |
+| `/var/lib/containerd` | 8.0 GB | Partly. This is where Docker's images **and build cache** really live; the build cache alone was 6.3 GB, 5.2 GB of it reclaimable |
+| `/usr` + `/var/lib/{snapd,apt,dpkg}` | ~3.2 GB | No — the operating system |
+| `/var/log/journal` | ~160 MB | Capped by log rotation; vacuum if it grows |
+| Postgres data | ~9 MB | No — this is the actual database |
+| Uploaded course files | ~1.2 MB | No — this is the actual course material |
+
+Two traps when reading those numbers:
+
+- **`du -sh /var/lib/docker` tells you almost nothing** (90 MB here). Images and build cache sit under `/var/lib/containerd`. Use `docker system df` for the real figures.
+- **Images and build cache grow with every deploy, not with usage.** `deploy.sh` prunes images and build cache older than 7 days, so several deploys inside a week leave the cache at a few GB. That is the normal reason the disk creeps up on a site with no data on it.
+
 In order:
 
-1. `docker builder prune -af` and `docker image prune -af` (reclaims build cache and unused images; harmless).
+1. `docker builder prune -af` and `docker image prune -af` (reclaims build cache and unused images; harmless — the next deploy just rebuilds from scratch and takes a few minutes longer).
 2. `sudo journalctl --vacuum-size=200M`.
 3. If uploads are the reason, attach a **Lightsail block storage disk**: console → Storage → Create disk (e.g. 64 GB, about $6/month) → attach to the instance. Then move the volume onto it:
    ```bash

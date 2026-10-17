@@ -431,5 +431,5 @@ Publishing a change, step by step and jargon-free: **[DEPLOYMENT.md](./DEPLOYMEN
 Deploying a change, once the server exists:
 
 ```bash
-ssh lms 'cd /opt/lms && sudo scripts/deploy.sh'
+ssh lms 'cd /home/ubuntu/cognisphere-lms && sudo scripts/deploy.sh'
 ```

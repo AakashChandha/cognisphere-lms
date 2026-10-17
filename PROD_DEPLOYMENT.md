@@ -93,9 +93,9 @@ GitHub → repository → Settings → Deploy keys → Add → paste the key, **
 Still on the instance:
 
 ```bash
-sudo git clone git@github.com:<you>/cognisphere-lms.git /opt/lms
-sudo chown -R ubuntu:ubuntu /opt/lms
-cd /opt/lms
+sudo git clone git@github.com:<you>/cognisphere-lms.git /home/ubuntu/cognisphere-lms
+sudo chown -R ubuntu:ubuntu /home/ubuntu/cognisphere-lms
+cd /home/ubuntu/cognisphere-lms
 sudo scripts/server-setup.sh
 ```
 
@@ -104,7 +104,7 @@ The script installs Docker, log rotation, a 2 GB swapfile, automatic security up
 ## 7. Configure and deploy
 
 ```bash
-cd /opt/lms
+cd /home/ubuntu/cognisphere-lms
 cp .env.example .env
 nano .env
 ```
@@ -162,6 +162,17 @@ sudo scripts/restore-db.sh /var/backups/lms/db-<date>.dump
 
 The heartbeat in UptimeRobot should turn green and the restore should finish without errors. You now know the recovery path works before you ever need it.
 
+### The pre-deploy dump (every deploy, not just the nightly backup)
+
+The nightly `scripts/backup.sh` can be up to 24 hours old, so every deploy is preceded by a fresh dump taken by hand immediately before `scripts/deploy.sh` runs:
+
+```bash
+cd /home/ubuntu/cognisphere-lms
+sudo sh -c '. ./.env; docker exec lms-postgres pg_dump -U "$POSTGRES_USER" -d "$POSTGRES_DB"' | gzip > ~/pre-deploy-$(date +%Y%m%d-%H%M).sql.gz
+```
+
+It is read-only: it copies the database out and never writes to it, and it is restored only if a human chooses to, with `scripts/restore-db.sh`. A successful deploy leaves the file unused. It earns its keep when a release adds tables or columns, because Prisma migrations are forward-only — `git checkout <old sha> && scripts/deploy.sh --no-pull` reverts the code but not the schema, and this dump is then the only seconds-old copy of the data. The step-by-step version for a non-developer is [DEPLOYMENT.md](./DEPLOYMENT.md) Step 5.
+
 ## 12. Optional: SSH alias on your laptop
 
 ```text
@@ -175,7 +186,7 @@ Host lms
 From then on, deploying is:
 
 ```bash
-ssh lms 'cd /opt/lms && sudo scripts/deploy.sh'
+ssh lms 'cd /home/ubuntu/cognisphere-lms && sudo sh -c ". ./.env; docker exec lms-postgres pg_dump -U \$POSTGRES_USER -d \$POSTGRES_DB" | gzip > ~/pre-deploy-$(date +%Y%m%d-%H%M).sql.gz && sudo scripts/deploy.sh'
 ```
 
 ---
