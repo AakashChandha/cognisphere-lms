@@ -6,6 +6,7 @@ import { useRouter, useSearchParams } from "next/navigation";
 import { useQuery } from "@tanstack/react-query";
 import { MoreHorizontal, Pencil, Plus, UserCog, UserX } from "lucide-react";
 import { PageHeader } from "@/components/shared/page-header";
+import { FullPageSpinner } from "@/components/shared/full-page-spinner";
 import { SearchInput } from "@/components/shared/search-input";
 import { PaginationControls } from "@/components/shared/pagination-controls";
 import { DataTable, type DataTableColumn } from "@/components/shared/data-table";
@@ -49,7 +50,7 @@ function TutorCell({ course }: { course: Course }) {
   );
 }
 
-export default function MasterCoursesPage() {
+function MasterCoursesContent() {
   const router = useRouter();
   const searchParams = useSearchParams();
   const { page, pageSize, search, setPage, setPageSize, setSearch } = usePaginationState();
@@ -212,5 +213,14 @@ export default function MasterCoursesPage() {
         onOpenChange={(open) => !open && setReassignTarget(null)}
       />
     </div>
+  );
+}
+
+// Suspense boundary required because the page reads filters via useSearchParams().
+export default function MasterCoursesPage() {
+  return (
+    <React.Suspense fallback={<FullPageSpinner label="Loading courses..." />}>
+      <MasterCoursesContent />
+    </React.Suspense>
   );
 }

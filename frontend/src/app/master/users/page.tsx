@@ -6,6 +6,7 @@ import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { toast } from "sonner";
 import { Plus, MoreHorizontal, Pencil, KeyRound, Ban, CheckCircle2, Trash2 } from "lucide-react";
 import { PageHeader } from "@/components/shared/page-header";
+import { FullPageSpinner } from "@/components/shared/full-page-spinner";
 import { SearchInput } from "@/components/shared/search-input";
 import { PaginationControls } from "@/components/shared/pagination-controls";
 import { DataTable, type DataTableColumn } from "@/components/shared/data-table";
@@ -50,7 +51,7 @@ const ROLE_ITEMS: Record<string, string> = {
   [AppRole.STUDENT]: "Students",
 };
 
-export default function MasterUsersPage() {
+function MasterUsersContent() {
   const queryClient = useQueryClient();
   const { user: currentUser } = useAuth();
   const searchParams = useSearchParams();
@@ -354,5 +355,14 @@ export default function MasterUsersPage() {
         }}
       />
     </div>
+  );
+}
+
+// Suspense boundary required because the page reads filters via useSearchParams().
+export default function MasterUsersPage() {
+  return (
+    <React.Suspense fallback={<FullPageSpinner label="Loading users..." />}>
+      <MasterUsersContent />
+    </React.Suspense>
   );
 }

@@ -19,6 +19,7 @@ import {
   FormMessage,
 } from "@/components/ui/form";
 import { AuthLayout } from "@/components/layout/auth-layout";
+import { FullPageSpinner } from "@/components/shared/full-page-spinner";
 import { safeReturnPath, useAuth } from "@/lib/auth/auth-context";
 import { getHomePathForRoles } from "@/lib/constants/roles";
 import { ApiError } from "@/types/api";
@@ -30,7 +31,7 @@ const loginSchema = z.object({
 
 type LoginFormValues = z.infer<typeof loginSchema>;
 
-export default function LoginPage() {
+function LoginForm() {
   const router = useRouter();
   const searchParams = useSearchParams();
   const returnPath = safeReturnPath(searchParams.get("next"));
@@ -138,5 +139,21 @@ export default function LoginPage() {
         </form>
       </Form>
     </AuthLayout>
+  );
+}
+
+// useSearchParams() opts the tree into client-side rendering, which `next build`
+// rejects during prerendering unless it sits behind a Suspense boundary.
+export default function LoginPage() {
+  return (
+    <React.Suspense
+      fallback={
+        <AuthLayout title="Welcome back" description="Sign in to continue your learning">
+          <FullPageSpinner label="Loading sign in..." />
+        </AuthLayout>
+      }
+    >
+      <LoginForm />
+    </React.Suspense>
   );
 }

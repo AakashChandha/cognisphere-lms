@@ -78,7 +78,7 @@ export interface CourseEditorProps {
   isMaster: boolean;
 }
 
-export function CourseEditor({ courseId, basePath, isMaster }: CourseEditorProps) {
+function CourseEditorContent({ courseId, basePath, isMaster }: CourseEditorProps) {
   const router = useRouter();
   const searchParams = useSearchParams();
   const queryClient = useQueryClient();
@@ -493,5 +493,15 @@ export function CourseEditor({ courseId, basePath, isMaster }: CourseEditorProps
         </>
       ) : null}
     </div>
+  );
+}
+
+// Wrapped here rather than in each page: the editor reads ?lesson= via
+// useSearchParams(), which needs a Suspense boundary at build time.
+export function CourseEditor(props: CourseEditorProps) {
+  return (
+    <React.Suspense fallback={<FullPageSpinner label="Loading course..." />}>
+      <CourseEditorContent {...props} />
+    </React.Suspense>
   );
 }
