@@ -17,13 +17,14 @@ cd /home/ubuntu/cognisphere-lms        # every command assumes this directory
 
 | Task | How | How often |
 |------|-----|-----------|
-| Deploy new code | `sudo scripts/deploy.sh` | Whenever you merge to `main` |
+| Deploy new code | Dump the database (section 3), then `sudo scripts/deploy.sh` | Whenever you merge to `main` |
 | Roll back a bad release | `git checkout <sha>` then `sudo scripts/deploy.sh --no-pull` | Rare |
 | Restore the database | `sudo scripts/restore-db.sh <dump>` | Rare; rehearsed once |
 | Restore uploaded files | `aws s3 sync` from the bucket into the volume | Rare |
 | Rebuild the whole machine | Restore the latest Lightsail snapshot, move the static IP | Disaster only |
 | Rotate secrets | Edit `.env`, `docker compose up -d` | Yearly, or on suspicion |
-| Disk filling up | Prune Docker, then grow storage | When the heartbeat alert fires |
+| Clear the Docker build cache | `sudo docker builder prune -af` | After a week of frequent deploys, or when the disk passes ~70% |
+| Disk filling up | Prune Docker (section 7), then grow storage | When the heartbeat alert fires |
 | Resize the instance | Snapshot → bigger instance → move static IP | If 4 GB ever feels tight |
 | OS security patches | Automatic, reboot at 04:00 IST if needed | Nothing to do |
 | Look at logs | `docker compose logs -f backend` | When debugging |
@@ -138,7 +139,7 @@ du -sh /var/lib/docker/volumes/*/_data 2>/dev/null | sort -h
 | Using it | Size | Is it garbage? |
 |---|---|---|
 | `/swapfile` | 6.0 GB | No — deliberate. `next build` needs ~2 GB and the instance has under 2 GB of RAM, so the build runs on swap |
-| `/var/lib/containerd` | 8.0 GB | Partly. This is where Docker's images **and build cache** really live; the build cache alone was 6.3 GB, 5.2 GB of it reclaimable |
+| `/var/lib/containerd` | 8.0 GB | **Mostly yes.** Docker's images *and* build cache both live here: ~2.9 GB of images, all five in use, plus 6.35 GB of build cache that nothing runs on |
 | `/usr` + `/var/lib/{snapd,apt,dpkg}` | ~3.2 GB | No — the operating system |
 | `/var/log/journal` | ~160 MB | Capped by log rotation; vacuum if it grows |
 | Postgres data | ~9 MB | No — this is the actual database |
@@ -149,18 +150,42 @@ Two traps when reading those numbers:
 - **`du -sh /var/lib/docker` tells you almost nothing** (90 MB here). Images and build cache sit under `/var/lib/containerd`. Use `docker system df` for the real figures.
 - **Images and build cache grow with every deploy, not with usage.** `deploy.sh` prunes images and build cache older than 7 days, so several deploys inside a week leave the cache at a few GB. That is the normal reason the disk creeps up on a site with no data on it.
 
-In order:
+### Routine cache clearance
 
-1. `docker builder prune -af` and `docker image prune -af` (reclaims build cache and unused images; harmless — the next deploy just rebuilds from scratch and takes a few minutes longer).
-2. `sudo journalctl --vacuum-size=200M`.
-3. If uploads are the reason, attach a **Lightsail block storage disk**: console → Storage → Create disk (e.g. 64 GB, about $6/month) → attach to the instance. Then move the volume onto it:
-   ```bash
-   docker compose stop backend
-   sudo mkfs.ext4 /dev/xvdf && sudo mkdir -p /mnt/uploads && sudo mount /dev/xvdf /mnt/uploads
-   vol=$(docker volume ls -q --filter label=com.docker.compose.volume=backend_storage)
-   sudo rsync -a "$(docker volume inspect -f '{{ .Mountpoint }}' "$vol")/" /mnt/uploads/
-   ```
-   add the disk to `/etc/fstab`, change the `backend_storage` volume in `docker-compose.yml` to a bind mount of `/mnt/uploads`, and `docker compose up -d`. No application change.
+**The build cache is the only thing here that is genuinely junk**, and it is usually most of the problem. Every deploy rebuilds both images from source, and Docker keeps the half-finished intermediate layers so the next build can skip repeating work. Nothing *runs* on them — they only make future builds faster. `deploy.sh` already prunes anything older than 7 days, so this is for when several deploys land inside one week.
+
+Run it from the laptop, with `df` either side so you see the real figure rather than Docker's estimate:
+
+```bash
+ssh lms 'df -h / && sudo docker builder prune -af && sudo apt-get clean && sudo journalctl --vacuum-size=200M && echo "--- AFTER ---" && df -h /'
+```
+
+What each part does, and what it costs:
+
+| Part | Removes | Cost |
+|---|---|---|
+| `docker builder prune -af` | All saved build scratch work | **The next deploy rebuilds from scratch and takes a few minutes longer.** Nothing else |
+| `apt-get clean` | ~156 MB of already-installed `.deb` downloads | None |
+| `journalctl --vacuum-size=200M` | Archived system logs beyond the newest 200 MB | Old system logs are gone. Skip this if you are mid-investigation |
+
+Add `sudo docker image prune -af` only if `docker system df` shows images that are not `ACTIVE`; on a healthy server all five are in use and that command is a no-op.
+
+**Measured on 17 Oct 2026** so the numbers are not guesswork: **18 GB → 13 GB used, 40 GB → 45 GB free.** Docker reported `Total reclaimed space: 6.354GB` across 49 cache objects, but the disk only gave back **5 GB** — expect a gap, because some cache layers are shared with the images you keep. `journalctl --vacuum-size` freed **0 B**: it only trims *archived* journals and the 200 MB cap was not exceeded, so nothing was lost. Afterwards `docker system df` reported images as 2.93 GB rather than the 8.355 GB it showed before; same five images, and the earlier figure was inflated by layers shared with the cache. The site stayed up throughout — no container restarts, no image rebuilds, database and uploads untouched.
+
+**13 GB is the floor.** What remains is the 6 GB swapfile, ~3 GB of live images, ~3.4 GB of Ubuntu, 158 MB of logs and ~49 MB of data. Going lower means removing the swapfile, which breaks `next build` on an instance with under 2 GB of RAM.
+
+### If that was not enough
+
+If uploads are the reason, attach a **Lightsail block storage disk**: console → Storage → Create disk (e.g. 64 GB, about $6/month) → attach to the instance. Then move the volume onto it:
+
+```bash
+docker compose stop backend
+sudo mkfs.ext4 /dev/xvdf && sudo mkdir -p /mnt/uploads && sudo mount /dev/xvdf /mnt/uploads
+vol=$(docker volume ls -q --filter label=com.docker.compose.volume=backend_storage)
+sudo rsync -a "$(docker volume inspect -f '{{ .Mountpoint }}' "$vol")/" /mnt/uploads/
+```
+
+Add the disk to `/etc/fstab`, change the `backend_storage` volume in `docker-compose.yml` to a bind mount of `/mnt/uploads`, and `docker compose up -d`. No application change.
 
 ## 8. Resize the instance
 
