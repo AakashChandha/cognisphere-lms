@@ -1,4 +1,4 @@
-import { Controller, Get, Param, Query, Res } from '@nestjs/common';
+import { Controller, Get, HttpCode, HttpStatus, Param, Post, Query, Res } from '@nestjs/common';
 import { ApiBearerAuth, ApiOkResponse, ApiOperation, ApiTags } from '@nestjs/swagger';
 import type { Response } from 'express';
 import { Roles } from '../../common/decorators/roles.decorator';
@@ -11,6 +11,7 @@ import { LocalStorageService } from '../storage/local-storage.service';
 import { CourseFilesService } from './course-files.service';
 import { CourseFileResponseDto } from './dto/course-file-response.dto';
 import { FileStreamUrlDto } from './dto/file-stream-url.dto';
+import { FileViewedResponseDto } from './dto/file-viewed-response.dto';
 
 @ApiTags('Students')
 @ApiBearerAuth('access-token')
@@ -27,6 +28,18 @@ export class StudentFilesController {
   @ApiPaginatedResponse(CourseFileResponseDto)
   findAll(@CurrentUser() user: AuthenticatedUser, @Query() query: PaginationQueryDto) {
     return this.filesService.findAllForStudent(user.id, query);
+  }
+
+  @Post(':fileId/viewed')
+  @HttpCode(HttpStatus.OK)
+  @ApiOperation({
+    summary: 'Record that the student reached the end of this file (last page/slide, ~95% of a video)',
+    description:
+      'Idempotent. When this was the lesson\'s last unseen file the server also writes the lesson completion, so the student never has to press anything.',
+  })
+  @ApiOkResponse({ type: FileViewedResponseDto })
+  markViewed(@Param('fileId') fileId: string, @CurrentUser() user: AuthenticatedUser) {
+    return this.filesService.markFileViewedForStudent(user.id, fileId);
   }
 
   @Get(':id/stream-url')

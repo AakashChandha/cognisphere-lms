@@ -43,7 +43,7 @@ export function AppTopbar({
   if (!user) return null;
 
   return (
-    <header className="sticky top-0 z-30 flex h-16 items-center gap-3 border-b border-border bg-background/95 px-4 backdrop-blur supports-backdrop-filter:bg-background/75 sm:px-6">
+    <header className="material-chrome scroll-edge sticky top-0 z-30 flex h-16 items-center gap-3 border-b border-border/60 px-4 sm:px-6">
       <SidebarToggleButton collapsed={sidebarCollapsed} onToggle={onToggleSidebar} />
 
       <Sheet open={mobileNavOpen} onOpenChange={setMobileNavOpen}>
@@ -77,7 +77,7 @@ export function AppTopbar({
               <Avatar size="sm">
                 <AvatarFallback>{getInitials(user.firstName, user.lastName)}</AvatarFallback>
               </Avatar>
-              <span className="hidden text-sm font-medium sm:inline">
+              <span className="hidden max-w-40 truncate text-sm font-medium sm:inline">
                 {user.firstName} {user.lastName}
               </span>
               <ChevronDown className="size-3.5 text-muted-foreground" />

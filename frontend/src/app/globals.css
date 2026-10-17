@@ -8,9 +8,9 @@
 @theme inline {
   --color-background: var(--background);
   --color-foreground: var(--foreground);
-  --font-sans: var(--font-manrope), ui-sans-serif, system-ui, sans-serif;
+  --font-sans: var(--font-inter), ui-sans-serif, system-ui, -apple-system, sans-serif;
   --font-mono: var(--font-jetbrains-mono), ui-monospace, monospace;
-  --font-heading: var(--font-manrope), ui-sans-serif, system-ui, sans-serif;
+  --font-heading: var(--font-manrope), var(--font-inter), ui-sans-serif, system-ui, sans-serif;
   --color-sidebar-ring: var(--sidebar-ring);
   --color-sidebar-border: var(--sidebar-border);
   --color-sidebar-accent-foreground: var(--sidebar-accent-foreground);
@@ -40,6 +40,20 @@
   --color-popover: var(--popover);
   --color-card-foreground: var(--card-foreground);
   --color-card: var(--card);
+
+  /* Brand + semantic status colours. Named tokens so feature screens can say
+     what a colour *means* instead of reaching for a raw Tailwind palette. */
+  --color-brand-indigo: var(--brand-indigo);
+  --color-brand-violet: var(--brand-violet);
+  --color-brand-pink: var(--brand-pink);
+  --color-brand-teal: var(--brand-teal);
+  --color-success: var(--success);
+  --color-success-foreground: var(--success-foreground);
+  --color-warning: var(--warning);
+  --color-warning-foreground: var(--warning-foreground);
+  --color-info: var(--info);
+  --color-info-foreground: var(--info-foreground);
+
   --radius-sm: calc(var(--radius) * 0.6);
   --radius-md: calc(var(--radius) * 0.8);
   --radius-lg: var(--radius);
@@ -47,77 +61,244 @@
   --radius-2xl: calc(var(--radius) * 1.8);
   --radius-3xl: calc(var(--radius) * 2.2);
   --radius-4xl: calc(var(--radius) * 2.6);
+
+  /* Layered, tinted elevation. Depth comes from two offset shadows (a tight
+     contact shadow plus a soft ambient one) rather than a single blur. */
+  --shadow-2xs: 0 1px 1px -1px var(--shadow-ambient);
+  --shadow-xs: 0 1px 2px -1px var(--shadow-contact), 0 1px 3px -1px var(--shadow-ambient);
+  --shadow-sm: 0 1px 2px -1px var(--shadow-contact), 0 3px 8px -3px var(--shadow-ambient);
+  --shadow-md: 0 2px 4px -2px var(--shadow-contact), 0 8px 20px -6px var(--shadow-ambient);
+  --shadow-lg: 0 4px 8px -4px var(--shadow-contact), 0 18px 40px -10px var(--shadow-ambient);
+  --shadow-xl: 0 8px 16px -8px var(--shadow-contact), 0 32px 64px -16px var(--shadow-ambient);
+  --shadow-2xl: 0 12px 24px -12px var(--shadow-contact), 0 48px 96px -24px var(--shadow-ambient);
+
+  /* Optical typography. Tracking tightens as size grows and opens up below
+     body size; leading loosens for reading sizes and tightens for display.
+     Setting it here means every existing `text-*` in the app inherits it. */
+  --text-xs--line-height: 1.4;
+  --text-xs--letter-spacing: 0.01em;
+  --text-sm--line-height: 1.5;
+  --text-sm--letter-spacing: 0.005em;
+  --text-base--line-height: 1.6;
+  --text-base--letter-spacing: 0em;
+  --text-lg--line-height: 1.5;
+  --text-lg--letter-spacing: -0.008em;
+  --text-xl--line-height: 1.4;
+  --text-xl--letter-spacing: -0.014em;
+  --text-2xl--line-height: 1.25;
+  --text-2xl--letter-spacing: -0.019em;
+  --text-3xl--line-height: 1.18;
+  --text-3xl--letter-spacing: -0.022em;
+  --text-4xl--line-height: 1.1;
+  --text-4xl--letter-spacing: -0.025em;
+  --text-5xl--line-height: 1.05;
+  --text-5xl--letter-spacing: -0.028em;
+  --text-6xl--line-height: 1.02;
+  --text-6xl--letter-spacing: -0.03em;
+}
+
+@theme {
+  /* Spring curves sampled from real spring solutions, expressed as linear().
+     `spring` is critically damped (damping ratio 1.0 — no overshoot) and is
+     the default for anything a user can interrupt. `spring-bounce` is damping
+     ~0.8 and is reserved for momentum-driven motion. */
+  --ease-spring: linear(
+    0, 0.1912, 0.4751, 0.6916, 0.8286, 0.9084, 0.9523, 0.9756, 0.9877, 0.9939, 1
+  );
+  --ease-spring-bounce: linear(
+    0, 0.2909, 0.676, 0.9028, 0.9933, 1.0147, 1.0122, 1.0061, 1.0021, 1.0003, 1
+  );
+  --ease-emphasized: cubic-bezier(0.22, 1, 0.36, 1);
+  --ease-emphasized-in: cubic-bezier(0.64, 0, 0.78, 0);
 }
 
 :root {
-  /* Light: slate neutrals, deep navy primary, safety-amber accent. */
-  --background: oklch(0.985 0.003 247);
-  --foreground: oklch(0.21 0.03 262);
+  /* Light. Neutrals carry a trace of the logo's violet so nothing reads as a
+     foreign grey next to the mark. Primary is the indigo-violet heart of the
+     swirl; teal is the counterweight at the other end of the gradient. */
+  --background: oklch(0.985 0.004 290);
+  --foreground: oklch(0.225 0.022 288);
   --card: oklch(1 0 0);
-  --card-foreground: oklch(0.21 0.03 262);
+  --card-foreground: oklch(0.225 0.022 288);
   --popover: oklch(1 0 0);
-  --popover-foreground: oklch(0.21 0.03 262);
-  --primary: oklch(0.36 0.09 258);
-  --primary-foreground: oklch(0.985 0.003 247);
-  --secondary: oklch(0.955 0.008 247);
-  --secondary-foreground: oklch(0.28 0.04 262);
-  --muted: oklch(0.955 0.008 247);
-  --muted-foreground: oklch(0.5 0.025 258);
-  --accent: oklch(0.95 0.012 250);
-  --accent-foreground: oklch(0.28 0.04 262);
-  --destructive: oklch(0.577 0.245 27.325);
-  --border: oklch(0.91 0.01 250);
-  --input: oklch(0.91 0.01 250);
-  --ring: oklch(0.55 0.1 258);
-  --chart-1: oklch(0.36 0.09 258);
-  --chart-2: oklch(0.8 0.16 80);
-  --chart-3: oklch(0.6 0.15 150);
-  --chart-4: oklch(0.65 0.13 240);
-  --chart-5: oklch(0.55 0.2 25);
+  --popover-foreground: oklch(0.225 0.022 288);
+  --primary: oklch(0.45 0.175 292);
+  --primary-foreground: oklch(0.99 0.004 290);
+  --secondary: oklch(0.962 0.008 290);
+  --secondary-foreground: oklch(0.3 0.03 290);
+  --muted: oklch(0.965 0.007 290);
+  --muted-foreground: oklch(0.515 0.024 290);
+  --accent: oklch(0.955 0.014 292);
+  --accent-foreground: oklch(0.3 0.04 292);
+  --destructive: oklch(0.52 0.21 27.5);
+  --border: oklch(0.905 0.009 290);
+  --input: oklch(0.905 0.009 290);
+  --ring: oklch(0.55 0.15 292);
+
+  --brand-indigo: oklch(0.42 0.16 272);
+  --brand-violet: oklch(0.55 0.17 305);
+  --brand-pink: oklch(0.82 0.08 340);
+  --brand-teal: oklch(0.72 0.12 205);
+  --success: oklch(0.51 0.12 160);
+  --success-foreground: oklch(0.99 0.004 290);
+  --warning: oklch(0.52 0.13 73);
+  --warning-foreground: oklch(0.99 0.004 290);
+  --info: oklch(0.51 0.13 250);
+  --info-foreground: oklch(0.99 0.004 290);
+
+  --chart-1: oklch(0.45 0.175 292);
+  --chart-2: oklch(0.58 0.12 205);
+  --chart-3: oklch(0.42 0.16 272);
+  --chart-4: oklch(0.66 0.13 340);
+  --chart-5: oklch(0.63 0.14 70);
+
   --radius: 0.75rem;
-  --sidebar: oklch(1 0 0);
-  --sidebar-foreground: oklch(0.21 0.03 262);
-  --sidebar-primary: oklch(0.36 0.09 258);
-  --sidebar-primary-foreground: oklch(0.985 0.003 247);
-  --sidebar-accent: oklch(0.955 0.008 247);
-  --sidebar-accent-foreground: oklch(0.28 0.04 262);
-  --sidebar-border: oklch(0.91 0.01 250);
-  --sidebar-ring: oklch(0.55 0.1 258);
+  --sidebar: oklch(0.992 0.004 290);
+  --sidebar-foreground: oklch(0.225 0.022 288);
+  --sidebar-primary: oklch(0.45 0.175 292);
+  --sidebar-primary-foreground: oklch(0.99 0.004 290);
+  --sidebar-accent: oklch(0.955 0.014 292);
+  --sidebar-accent-foreground: oklch(0.3 0.04 292);
+  --sidebar-border: oklch(0.905 0.009 290);
+  --sidebar-ring: oklch(0.55 0.15 292);
+
+  --shadow-contact: oklch(0.225 0.03 290 / 0.08);
+  --shadow-ambient: oklch(0.225 0.03 290 / 0.07);
+
+  --brand-gradient: linear-gradient(
+    135deg,
+    var(--brand-indigo) 0%,
+    var(--brand-violet) 48%,
+    var(--brand-teal) 100%
+  );
+
+  /* Motion scalars. Every transform-based transition in the design system
+     reads these, so `prefers-reduced-motion` can neutralise all of them at
+     once without any component losing its fade. */
+  --motion-rise: 0.5rem;
+  --motion-slide: 0.75rem;
+  --motion-scale: 0.96;
+  --motion-blur: 6px;
+  --motion-press: 0.97;
+  --motion-sheet: 100%;
+  --duration-press: 110ms;
+  --duration-fast: 160ms;
+  --duration-base: 240ms;
+  --duration-slow: 340ms;
 }
 
 .dark {
-  /* Dark: navy-tinted surfaces instead of flat black; lighter primary for contrast. */
-  --background: oklch(0.17 0.025 262);
-  --foreground: oklch(0.93 0.01 250);
-  --card: oklch(0.215 0.028 262);
-  --card-foreground: oklch(0.93 0.01 250);
-  --popover: oklch(0.215 0.028 262);
-  --popover-foreground: oklch(0.93 0.01 250);
-  --primary: oklch(0.78 0.08 250);
-  --primary-foreground: oklch(0.17 0.025 262);
-  --secondary: oklch(0.27 0.03 262);
-  --secondary-foreground: oklch(0.93 0.01 250);
-  --muted: oklch(0.27 0.03 262);
-  --muted-foreground: oklch(0.7 0.02 255);
-  --accent: oklch(0.29 0.035 262);
-  --accent-foreground: oklch(0.93 0.01 250);
-  --destructive: oklch(0.704 0.191 22.216);
-  --border: oklch(1 0 0 / 10%);
-  --input: oklch(1 0 0 / 14%);
-  --ring: oklch(0.6 0.08 255);
-  --chart-1: oklch(0.78 0.08 250);
-  --chart-2: oklch(0.82 0.15 80);
-  --chart-3: oklch(0.7 0.14 150);
-  --chart-4: oklch(0.7 0.12 240);
-  --chart-5: oklch(0.65 0.18 25);
-  --sidebar: oklch(0.19 0.027 262);
-  --sidebar-foreground: oklch(0.93 0.01 250);
-  --sidebar-primary: oklch(0.78 0.08 250);
-  --sidebar-primary-foreground: oklch(0.17 0.025 262);
-  --sidebar-accent: oklch(0.27 0.03 262);
-  --sidebar-accent-foreground: oklch(0.93 0.01 250);
-  --sidebar-border: oklch(1 0 0 / 10%);
-  --sidebar-ring: oklch(0.6 0.08 255);
+  /* Dark. Surfaces are indigo-tinted charcoal, not black, so the logo's
+     violet sits in the same family as the chrome around it. */
+  --background: oklch(0.165 0.018 288);
+  --foreground: oklch(0.95 0.008 290);
+  --card: oklch(0.205 0.021 288);
+  --card-foreground: oklch(0.95 0.008 290);
+  --popover: oklch(0.225 0.023 288);
+  --popover-foreground: oklch(0.95 0.008 290);
+  --primary: oklch(0.74 0.13 292);
+  --primary-foreground: oklch(0.18 0.025 290);
+  --secondary: oklch(0.265 0.025 288);
+  --secondary-foreground: oklch(0.95 0.008 290);
+  --muted: oklch(0.265 0.025 288);
+  --muted-foreground: oklch(0.715 0.02 290);
+  --accent: oklch(0.295 0.032 290);
+  --accent-foreground: oklch(0.95 0.008 290);
+  --destructive: oklch(0.7 0.19 22.5);
+  --border: oklch(1 0 0 / 11%);
+  --input: oklch(1 0 0 / 15%);
+  --ring: oklch(0.65 0.12 292);
+
+  --brand-indigo: oklch(0.62 0.15 272);
+  --brand-violet: oklch(0.72 0.14 305);
+  --brand-pink: oklch(0.85 0.07 340);
+  --brand-teal: oklch(0.8 0.11 205);
+  --success: oklch(0.78 0.14 162);
+  --success-foreground: oklch(0.18 0.025 290);
+  --warning: oklch(0.82 0.13 72);
+  --warning-foreground: oklch(0.18 0.025 290);
+  --info: oklch(0.76 0.11 250);
+  --info-foreground: oklch(0.18 0.025 290);
+
+  --chart-1: oklch(0.74 0.13 292);
+  --chart-2: oklch(0.8 0.11 205);
+  --chart-3: oklch(0.62 0.15 272);
+  --chart-4: oklch(0.8 0.1 340);
+  --chart-5: oklch(0.8 0.13 72);
+
+  --sidebar: oklch(0.185 0.02 288);
+  --sidebar-foreground: oklch(0.95 0.008 290);
+  --sidebar-primary: oklch(0.74 0.13 292);
+  --sidebar-primary-foreground: oklch(0.18 0.025 290);
+  --sidebar-accent: oklch(0.295 0.032 290);
+  --sidebar-accent-foreground: oklch(0.95 0.008 290);
+  --sidebar-border: oklch(1 0 0 / 11%);
+  --sidebar-ring: oklch(0.65 0.12 292);
+
+  --shadow-contact: oklch(0.08 0.02 290 / 0.5);
+  --shadow-ambient: oklch(0.08 0.02 290 / 0.4);
+}
+
+/* Reduced motion keeps every fade and colour change but removes travel,
+   scale and blur — a gentler equivalent, not a dead interface. */
+@media (prefers-reduced-motion: reduce) {
+  :root {
+    --motion-rise: 0px;
+    --motion-slide: 0px;
+    --motion-scale: 1;
+    --motion-blur: 0px;
+    /* `--motion-press` is deliberately *not* neutralised: a 3% press scale is
+       direct feedback, not vestibular motion, and removing it would leave
+       buttons feeling dead. Only its travel time collapses. */
+    --motion-sheet: 0%;
+    --duration-press: 1ms;
+    --duration-fast: 100ms;
+    --duration-base: 130ms;
+    --duration-slow: 150ms;
+  }
+
+  /* tw-animate-css keyframes can't be neutralised through the scalars above,
+     so collapse them to a plain cross-fade. */
+  .animate-in,
+  .animate-out {
+    animation-duration: 130ms !important;
+    animation-timing-function: linear !important;
+    --tw-enter-translate-x: 0 !important;
+    --tw-enter-translate-y: 0 !important;
+    --tw-exit-translate-x: 0 !important;
+    --tw-exit-translate-y: 0 !important;
+    --tw-enter-scale: 1 !important;
+    --tw-exit-scale: 1 !important;
+    --tw-enter-rotate: 0 !important;
+    --tw-exit-rotate: 0 !important;
+  }
+
+  html {
+    scroll-behavior: auto !important;
+  }
+}
+
+/* Translucency is a preference, not a given. */
+@media (prefers-reduced-transparency: reduce) {
+  :root {
+    --material-opacity: 1;
+    --material-blur: 0px;
+  }
+}
+
+@media (prefers-contrast: more) {
+  :root {
+    --material-opacity: 1;
+    --material-blur: 0px;
+    --border: oklch(0.55 0.02 290);
+    --input: oklch(0.5 0.02 290);
+    --muted-foreground: oklch(0.42 0.025 290);
+  }
+  .dark {
+    --border: oklch(0.72 0.02 290);
+    --input: oklch(0.75 0.02 290);
+    --muted-foreground: oklch(0.82 0.015 290);
+  }
 }
 
 @layer base {
@@ -126,9 +307,12 @@
   }
   html {
     @apply font-sans;
+    font-optical-sizing: auto;
+    -webkit-tap-highlight-color: transparent;
   }
   body {
     @apply bg-background font-sans text-foreground antialiased;
+    font-synthesis-weight: none;
   }
   ::selection {
     @apply bg-primary/20;
@@ -139,6 +323,283 @@
   h4,
   h5,
   h6 {
-    @apply font-heading tracking-tight;
+    @apply font-heading;
+    font-optical-sizing: auto;
+    text-wrap: balance;
+  }
+  /* Headings that carry no explicit `text-*` still get optical tracking. */
+  h1 {
+    letter-spacing: -0.022em;
+  }
+  h2 {
+    letter-spacing: -0.019em;
+  }
+  h3 {
+    letter-spacing: -0.014em;
+  }
+  h4,
+  h5,
+  h6 {
+    letter-spacing: -0.008em;
+  }
+  p {
+    text-wrap: pretty;
+  }
+
+  /* Thin, token-tinted scrollbars so scroll areas stop looking like a
+     different operating system inside the app. */
+  * {
+    scrollbar-width: thin;
+    scrollbar-color: color-mix(in oklab, var(--foreground) 22%, transparent) transparent;
+  }
+  ::-webkit-scrollbar {
+    width: 10px;
+    height: 10px;
+  }
+  ::-webkit-scrollbar-track {
+    background: transparent;
+  }
+  ::-webkit-scrollbar-thumb {
+    background-color: color-mix(in oklab, var(--foreground) 18%, transparent);
+    border: 3px solid transparent;
+    background-clip: content-box;
+    border-radius: 999px;
+  }
+  ::-webkit-scrollbar-thumb:hover {
+    background-color: color-mix(in oklab, var(--foreground) 30%, transparent);
+  }
+}
+
+/* Long-form lesson copy: brand colours, a reading measure and open leading. */
+@layer base {
+  .prose {
+    --tw-prose-body: var(--foreground);
+    --tw-prose-headings: var(--foreground);
+    --tw-prose-lead: var(--muted-foreground);
+    --tw-prose-links: var(--primary);
+    --tw-prose-bold: var(--foreground);
+    --tw-prose-counters: var(--muted-foreground);
+    --tw-prose-bullets: color-mix(in oklab, var(--primary) 45%, transparent);
+    --tw-prose-hr: var(--border);
+    --tw-prose-quotes: var(--foreground);
+    --tw-prose-quote-borders: color-mix(in oklab, var(--primary) 35%, transparent);
+    --tw-prose-captions: var(--muted-foreground);
+    --tw-prose-code: var(--foreground);
+    --tw-prose-pre-code: var(--foreground);
+    --tw-prose-pre-bg: var(--muted);
+    --tw-prose-th-borders: var(--border);
+    --tw-prose-td-borders: var(--border);
+    --tw-prose-invert-body: var(--foreground);
+    --tw-prose-invert-headings: var(--foreground);
+    --tw-prose-invert-links: var(--primary);
+    --tw-prose-invert-bold: var(--foreground);
+    --tw-prose-invert-hr: var(--border);
+    --tw-prose-invert-pre-bg: var(--muted);
+    line-height: 1.7;
+  }
+  .prose :where(h1, h2, h3, h4):not(:where([class~="not-prose"] *)) {
+    font-family: var(--font-heading);
+  }
+}
+
+/* ---------------------------------------------------------------------- */
+/* Materials                                                               */
+/* ---------------------------------------------------------------------- */
+
+/* Structural chrome (topbar, sidebar) — heavier material, content passes
+   underneath it rather than being pushed aside by an opaque strip. */
+@utility material-chrome {
+  background-color: color-mix(
+    in oklab,
+    var(--background) calc(72% + (var(--material-opacity, 0) * 28%)),
+    transparent
+  );
+  backdrop-filter: blur(var(--material-blur, 24px)) saturate(170%);
+  -webkit-backdrop-filter: blur(var(--material-blur, 24px)) saturate(170%);
+  @supports not (backdrop-filter: blur(1px)) {
+    background-color: var(--background);
+  }
+}
+
+/* Floating surfaces (popovers, menus, dialogs) — lighter material that draws
+   the eye. Never stack one of these on another. */
+@utility material-panel {
+  background-color: color-mix(
+    in oklab,
+    var(--popover) calc(84% + (var(--material-opacity, 0) * 16%)),
+    transparent
+  );
+  backdrop-filter: blur(var(--material-blur, 28px)) saturate(180%);
+  -webkit-backdrop-filter: blur(var(--material-blur, 28px)) saturate(180%);
+  @supports not (backdrop-filter: blur(1px)) {
+    background-color: var(--popover);
+  }
+}
+
+/* Big surfaces read as thicker glass than small ones: dialogs and sheets
+   carry more material and a deeper blur than a menu does. */
+@utility material-panel-thick {
+  background-color: color-mix(
+    in oklab,
+    var(--popover) calc(93% + (var(--material-opacity, 0) * 7%)),
+    transparent
+  );
+  backdrop-filter: blur(var(--material-blur, 40px)) saturate(180%);
+  -webkit-backdrop-filter: blur(var(--material-blur, 40px)) saturate(180%);
+  @supports not (backdrop-filter: blur(1px)) {
+    background-color: var(--popover);
+  }
+}
+
+/* The dim-to-focus scrim behind a modal task. */
+@utility material-scrim {
+  background-color: oklch(0.18 0.03 290 / 0.28);
+  backdrop-filter: blur(var(--material-blur, 3px));
+  -webkit-backdrop-filter: blur(var(--material-blur, 3px));
+}
+
+/* A soft edge where content scrolls under floating chrome, instead of a
+   hard 1px rule that is there even when nothing overlaps. */
+@utility scroll-edge {
+  /* No `position` here on purpose: the host is already sticky/fixed, and
+     forcing `relative` would break that. */
+  &::after {
+    content: "";
+    position: absolute;
+    inset-inline: 0;
+    top: 100%;
+    height: 1.25rem;
+    pointer-events: none;
+    background: linear-gradient(
+      to bottom,
+      color-mix(in oklab, var(--background) 70%, transparent),
+      transparent
+    );
+  }
+}
+
+/* Scrim for the auth cover photo: a dark brand-tinted wash that is heaviest
+   where the copy sits, so white text clears AA over a bright photograph. */
+@utility cover-scrim {
+  background-image:
+    linear-gradient(
+      to top,
+      oklch(0.16 0.04 288 / 0.93) 0%,
+      oklch(0.16 0.04 288 / 0.76) 32%,
+      oklch(0.16 0.04 288 / 0.28) 68%,
+      oklch(0.16 0.04 288 / 0.06) 100%
+    ),
+    linear-gradient(
+      135deg,
+      color-mix(in oklab, var(--brand-indigo) 40%, transparent) 0%,
+      transparent 48%,
+      color-mix(in oklab, var(--brand-teal) 18%, transparent) 100%
+    );
+}
+
+/* The logo gradient, for marks and thin accents. */
+@utility brand-gradient {
+  background-image: var(--brand-gradient);
+}
+
+@utility brand-gradient-text {
+  background-image: var(--brand-gradient);
+  background-clip: text;
+  color: transparent;
+}
+
+/* ---------------------------------------------------------------------- */
+/* Motion                                                                  */
+/* ---------------------------------------------------------------------- */
+
+/* Press feedback lands on pointer-down (`:active` fires then, not on
+   release) and springs back on release. Scale, not colour, so it reads the
+   same over any surface. The `scale` property is used rather than
+   `transform: scale()` so the press never fights a Tailwind `-translate-*`
+   that is doing positioning work. */
+@utility press {
+  transition:
+    scale var(--duration-base) var(--ease-spring),
+    background-color var(--duration-fast) var(--ease-spring),
+    border-color var(--duration-fast) var(--ease-spring),
+    color var(--duration-fast) var(--ease-spring),
+    opacity var(--duration-fast) var(--ease-spring),
+    box-shadow var(--duration-fast) var(--ease-spring);
+  &:active {
+    scale: var(--motion-press);
+    transition-duration: var(--duration-press);
+  }
+}
+
+/* Same, for wide targets where a full-strength scale reads as a wobble. */
+@utility press-subtle {
+  transition:
+    scale var(--duration-base) var(--ease-spring),
+    background-color var(--duration-fast) var(--ease-spring),
+    border-color var(--duration-fast) var(--ease-spring),
+    color var(--duration-fast) var(--ease-spring),
+    box-shadow var(--duration-fast) var(--ease-spring);
+  &:active {
+    scale: calc(1 - (1 - var(--motion-press)) * 0.45);
+    transition-duration: var(--duration-press);
+  }
+}
+
+/* Enter/exit for anchored surfaces: they materialise from their trigger
+   (scale + blur together, so glass reads as glass) and leave the same way.
+   Transitions, not keyframes, so an interrupted open starts from whatever is
+   currently on screen instead of jumping to the target first. */
+@utility motion-popup {
+  transition:
+    opacity var(--duration-fast) var(--ease-spring),
+    scale var(--duration-base) var(--ease-spring),
+    translate var(--duration-base) var(--ease-spring),
+    filter var(--duration-fast) linear;
+  &[data-starting-style],
+  &[data-ending-style] {
+    opacity: 0;
+    scale: var(--motion-scale);
+    filter: blur(var(--motion-blur));
+  }
+  &[data-ending-style] {
+    transition-duration: var(--duration-fast);
+    transition-timing-function: var(--ease-emphasized-in);
+  }
+}
+
+/* A sheet is a grabbable surface: it enters and leaves along the same edge,
+   at full travel, so the path in and the path out are the same path. */
+@utility motion-sheet {
+  transition:
+    opacity var(--duration-fast) var(--ease-spring),
+    translate var(--duration-slow) var(--ease-spring);
+  &[data-starting-style],
+  &[data-ending-style] {
+    opacity: 0;
+  }
+  &[data-ending-style] {
+    transition-duration: var(--duration-base);
+    transition-timing-function: var(--ease-emphasized-in);
+  }
+  &[data-side="left"]:is([data-starting-style], [data-ending-style]) {
+    translate: calc(-1 * var(--motion-sheet)) 0;
+  }
+  &[data-side="right"]:is([data-starting-style], [data-ending-style]) {
+    translate: var(--motion-sheet) 0;
+  }
+  &[data-side="top"]:is([data-starting-style], [data-ending-style]) {
+    translate: 0 calc(-1 * var(--motion-sheet));
+  }
+  &[data-side="bottom"]:is([data-starting-style], [data-ending-style]) {
+    translate: 0 var(--motion-sheet);
+  }
+}
+
+/* Backdrops dim rather than move. */
+@utility motion-backdrop {
+  transition: opacity var(--duration-base) var(--ease-spring);
+  &[data-starting-style],
+  &[data-ending-style] {
+    opacity: 0;
   }
 }

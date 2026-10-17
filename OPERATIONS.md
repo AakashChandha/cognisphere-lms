@@ -2,7 +2,7 @@
 
 Day-to-day maintenance of the production LMS. If a task is not on this page, it is not part of the design.
 
-Everything runs on **one Lightsail instance** (Mumbai, 4 GB) from `/opt/lms` with `docker compose`. First-time setup lives in [PROD_DEPLOYMENT.md](./PROD_DEPLOYMENT.md); the reasoning behind the setup is in the README's *Architecture Decisions* section.
+Everything runs on **one Lightsail instance** (Mumbai, 4 GB) from `/opt/lms` with `docker compose`. First-time setup lives in [PROD_DEPLOYMENT.md](./PROD_DEPLOYMENT.md), the plain-English walkthrough of publishing a change in [DEPLOYMENT.md](./DEPLOYMENT.md); the reasoning behind the setup is in the README's *Architecture Decisions* section.
 
 Conventions used below:
 

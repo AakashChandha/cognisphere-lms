@@ -89,7 +89,13 @@ function LoginForm() {
               <FormItem>
                 <FormLabel>Email</FormLabel>
                 <FormControl>
-                  <Input type="email" placeholder="you@company.com" autoComplete="email" {...field} />
+                  <Input
+                    type="email"
+                    placeholder="you@company.com"
+                    autoComplete="email"
+                    className="h-10"
+                    {...field}
+                  />
                 </FormControl>
                 <FormMessage />
               </FormItem>
@@ -113,13 +119,13 @@ function LoginForm() {
                       type={showPassword ? "text" : "password"}
                       placeholder="••••••••"
                       autoComplete="current-password"
-                      className="pr-9"
+                      className="h-10 pr-10"
                       {...field}
                     />
                     <button
                       type="button"
                       onClick={() => setShowPassword((v) => !v)}
-                      className="absolute right-2.5 top-1/2 -translate-y-1/2 text-muted-foreground hover:text-foreground"
+                      className="press absolute top-1/2 right-1.5 -translate-y-1/2 rounded-md p-1 text-muted-foreground outline-none hover:text-foreground focus-visible:ring-3 focus-visible:ring-ring/50"
                       tabIndex={-1}
                       aria-label={showPassword ? "Hide password" : "Show password"}
                     >
@@ -132,7 +138,7 @@ function LoginForm() {
             )}
           />
 
-          <Button type="submit" className="w-full" disabled={isSubmitting}>
+          <Button type="submit" size="lg" className="h-10 w-full" disabled={isSubmitting}>
             {isSubmitting ? <Loader2 className="size-4 animate-spin" /> : null}
             Sign in
           </Button>

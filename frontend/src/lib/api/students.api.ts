@@ -3,6 +3,7 @@ import { cleanParams } from "./query-string";
 import type { ApiEnvelope, PaginationQuery } from "@/types/api";
 import type { StudentDashboard } from "@/types/dashboard";
 import type { Student } from "@/types/people";
+import type { StudentProgressDetail } from "@/types/student-progress";
 
 export const studentsApi = {
   getDashboard() {
@@ -11,6 +12,12 @@ export const studentsApi = {
   listForMaster(params: PaginationQuery) {
     return unwrapPaginated(
       apiClient.get<ApiEnvelope<Student[]>>("/master/students", { params: cleanParams(params) }),
+    );
+  },
+  /** One student's progress across every course. Same shape as the tutor route, unscoped. */
+  getForMaster(studentId: string) {
+    return unwrap(
+      apiClient.get<ApiEnvelope<StudentProgressDetail>>(`/master/students/${studentId}`),
     );
   },
 };

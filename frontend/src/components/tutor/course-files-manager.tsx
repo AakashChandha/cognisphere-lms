@@ -131,9 +131,10 @@ export function CourseFilesManager({ courseId, readOnly = false }: CourseFilesMa
               <UploadCloud className="size-5" />
             </div>
             <div>
-              <p className="text-sm font-medium text-foreground">Add material</p>
+              <p className="text-sm font-medium text-foreground">Add lesson material</p>
               <p className="text-sm text-muted-foreground">
                 Students view everything in the browser and cannot download it. Upload a PDF, PowerPoint (.pptx) or MP4 video.
+                Reference books and handouts belong in the Materials tab instead.
               </p>
             </div>
           </div>

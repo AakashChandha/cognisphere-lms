@@ -79,7 +79,12 @@ export default function ChangePasswordPage() {
   if (isLoading || !user || !user.mustChangePassword) return <FullPageSpinner />;
 
   return (
-    <AuthLayout title={`Welcome, ${user.firstName}`} description="Choose your own password before you continue">
+    <AuthLayout
+      title={`Welcome, ${user.firstName}`}
+      description="Choose your own password before you continue"
+      coverHeadline="One last step before your first lesson."
+      coverBody="Replace the temporary password your administrator issued with one only you know. You can change it again at any time from your profile."
+    >
       <Form {...form}>
         <form
           onSubmit={form.handleSubmit((values) => {
@@ -101,7 +106,7 @@ export default function ChangePasswordPage() {
               <FormItem>
                 <FormLabel>Temporary password</FormLabel>
                 <FormControl>
-                  <Input type="password" autoComplete="current-password" autoFocus {...field} />
+                  <Input type="password" autoComplete="current-password" autoFocus className="h-10" {...field} />
                 </FormControl>
                 <FormDescription>The one your administrator gave you.</FormDescription>
                 <FormMessage />
@@ -116,11 +121,16 @@ export default function ChangePasswordPage() {
                 <FormLabel>New password</FormLabel>
                 <FormControl>
                   <div className="relative">
-                    <Input type={showNew ? "text" : "password"} autoComplete="new-password" className="pr-9" {...field} />
+                    <Input
+                      type={showNew ? "text" : "password"}
+                      autoComplete="new-password"
+                      className="h-10 pr-10"
+                      {...field}
+                    />
                     <button
                       type="button"
                       onClick={() => setShowNew((v) => !v)}
-                      className="absolute top-1/2 right-2.5 -translate-y-1/2 text-muted-foreground hover:text-foreground"
+                      className="press absolute top-1/2 right-1.5 -translate-y-1/2 rounded-md p-1 text-muted-foreground outline-none hover:text-foreground focus-visible:ring-3 focus-visible:ring-ring/50"
                       tabIndex={-1}
                       aria-label={showNew ? "Hide password" : "Show password"}
                     >
@@ -140,17 +150,17 @@ export default function ChangePasswordPage() {
               <FormItem>
                 <FormLabel>Confirm new password</FormLabel>
                 <FormControl>
-                  <Input type={showNew ? "text" : "password"} autoComplete="new-password" {...field} />
+                  <Input type={showNew ? "text" : "password"} autoComplete="new-password" className="h-10" {...field} />
                 </FormControl>
                 <FormMessage />
               </FormItem>
             )}
           />
-          <Button type="submit" className="w-full" disabled={mutation.isPending}>
+          <Button type="submit" size="lg" className="h-10 w-full" disabled={mutation.isPending}>
             {mutation.isPending ? <Loader2 className="size-4 animate-spin" /> : null}
             Save password and continue
           </Button>
-          <Button type="button" variant="ghost" className="w-full" onClick={() => void logout()}>
+          <Button type="button" variant="ghost" className="h-10 w-full" onClick={() => void logout()}>
             Sign out instead
           </Button>
         </form>

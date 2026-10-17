@@ -1,5 +1,5 @@
 import { ApiProperty } from '@nestjs/swagger';
-import { CourseStatus } from '@prisma/client';
+import { CourseProgressionMode, CourseStatus } from '@prisma/client';
 
 export class CourseTutorSummaryDto {
   @ApiProperty() id: string;
@@ -21,6 +21,8 @@ export class CourseResponseDto {
   @ApiProperty() slug: string;
   @ApiProperty() description: string;
   @ApiProperty({ enum: CourseStatus }) status: CourseStatus;
+  @ApiProperty({ enum: CourseProgressionMode, description: 'Whether lessons must be taken in order' })
+  progressionMode: CourseProgressionMode;
   @ApiProperty({ nullable: true }) thumbnailUrl: string | null;
   @ApiProperty({ type: CourseTutorSummaryDto, nullable: true, description: 'Null when the tutor was removed and the course awaits reassignment' })
   tutor: CourseTutorSummaryDto | null;

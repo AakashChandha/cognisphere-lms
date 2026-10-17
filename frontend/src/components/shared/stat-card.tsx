@@ -12,10 +12,10 @@ interface StatCardProps {
 }
 
 const ACCENT_CLASSES: Record<NonNullable<StatCardProps["accent"]>, string> = {
-  default: "bg-primary/10 text-primary",
-  success: "bg-emerald-500/10 text-emerald-600 dark:text-emerald-400",
-  warning: "bg-amber-500/10 text-amber-600 dark:text-amber-400",
-  danger: "bg-destructive/10 text-destructive",
+  default: "bg-primary/10 text-primary ring-primary/15",
+  success: "bg-success/10 text-success ring-success/15",
+  warning: "bg-warning/10 text-warning ring-warning/15",
+  danger: "bg-destructive/10 text-destructive ring-destructive/15",
 };
 
 export function StatCard({ label, value, icon: Icon, description, className, accent = "default" }: StatCardProps) {
@@ -23,11 +23,14 @@ export function StatCard({ label, value, icon: Icon, description, className, acc
     <Card className={cn("gap-3", className)}>
       <CardContent className="flex items-start justify-between gap-4">
         <div className="space-y-1">
-          <p className="text-sm text-muted-foreground">{label}</p>
-          <p className="text-2xl font-semibold tabular-nums text-foreground">{value}</p>
+          <p className="text-sm font-medium text-muted-foreground">{label}</p>
+          <p className="font-heading text-3xl font-semibold tabular-nums text-foreground">{value}</p>
           {description ? <p className="text-xs text-muted-foreground">{description}</p> : null}
         </div>
-        <div className={cn("flex size-10 shrink-0 items-center justify-center rounded-lg", ACCENT_CLASSES[accent])}>
+        <div className={cn(
+            "flex size-10 shrink-0 items-center justify-center rounded-xl ring-1",
+            ACCENT_CLASSES[accent],
+          )}>
           <Icon className="size-5" />
         </div>
       </CardContent>

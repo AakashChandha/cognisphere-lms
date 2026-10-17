@@ -18,7 +18,7 @@ export function ErrorState({
   return (
     <div
       className={cn(
-        "flex flex-col items-center justify-center gap-3 rounded-lg border border-destructive/20 bg-destructive/5 px-6 py-16 text-center",
+        "flex flex-col items-center justify-center gap-3 rounded-xl border border-destructive/20 bg-destructive/5 px-6 py-16 text-center",
         className,
       )}
     >
@@ -26,7 +26,7 @@ export function ErrorState({
         <AlertTriangle className="size-6 text-destructive" />
       </div>
       <div className="space-y-1">
-        <p className="text-sm font-medium text-foreground">{title}</p>
+        <p className="font-heading text-base font-semibold text-foreground">{title}</p>
         <p className="max-w-sm text-sm text-muted-foreground">{description}</p>
       </div>
       {onRetry ? (

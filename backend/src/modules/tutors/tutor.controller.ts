@@ -1,4 +1,4 @@
-import { Body, Controller, Get, Put, Query } from '@nestjs/common';
+import { Body, Controller, Get, Param, ParseUUIDPipe, Put, Query } from '@nestjs/common';
 import { ApiBearerAuth, ApiOperation, ApiTags } from '@nestjs/swagger';
 import { Roles } from '../../common/decorators/roles.decorator';
 import { CurrentUser } from '../../common/decorators/current-user.decorator';
@@ -9,6 +9,7 @@ import { PaginationQueryDto } from '../../common/dto/pagination-query.dto';
 import { TutorsService } from './tutors.service';
 import { TutorDashboardDto } from './dto/tutor-dashboard.dto';
 import { StudentResponseDto } from '../students/dto/student-response.dto';
+import { StudentProgressDetailDto } from '../students/dto/student-progress.dto';
 import { StudentsService } from '../students/students.service';
 import { ProfileService } from '../profile/profile.service';
 import { UpdateProfileDto } from '../users/dto/update-profile.dto';
@@ -45,6 +46,16 @@ export class TutorController {
   @ApiPaginatedResponse(StudentResponseDto)
   listStudentDirectory(@Query() query: PaginationQueryDto) {
     return this.studentsService.findAllPaginated(query);
+  }
+
+  // Declared after `students/directory`, or this wildcard would swallow it.
+  @Get('students/:studentId')
+  @ApiOperation({ summary: "How far one student has got in the tutor's own courses" })
+  getStudentProgress(
+    @CurrentUser() user: AuthenticatedUser,
+    @Param('studentId', ParseUUIDPipe) studentId: string,
+  ): Promise<StudentProgressDetailDto> {
+    return this.tutorsService.getStudentProgressDetail(user.id, studentId);
   }
 
   @Get('profile')

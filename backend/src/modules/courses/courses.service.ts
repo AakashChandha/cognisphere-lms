@@ -5,7 +5,7 @@ import {
   Injectable,
   NotFoundException,
 } from '@nestjs/common';
-import { CourseStatus, Prisma, RoleName } from '@prisma/client';
+import { CourseStatus, FilePurpose, Prisma, RoleName } from '@prisma/client';
 import { PrismaService } from '../../prisma/prisma.service';
 import { buildPaginatedResult } from '../../common/utils/pagination.util';
 import { PaginatedResult } from '../../common/interfaces/paginated-result.interface';
@@ -19,7 +19,16 @@ import { CourseProgressDto, CourseResponseDto } from './dto/course-response.dto'
 
 const COURSE_INCLUDE = {
   tutor: { include: { user: true } },
-  _count: { select: { lessons: true, files: true, enrollments: true } },
+  _count: {
+    select: {
+      lessons: true,
+      // `files` now also holds study materials, question papers, submissions
+      // and the cover image, none of which belong in the course's material
+      // count.
+      files: { where: { purpose: FilePurpose.LESSON_MATERIAL } },
+      enrollments: true,
+    },
+  },
 } satisfies Prisma.CourseInclude;
 
 type CourseWithRelations = Prisma.CourseGetPayload<{ include: typeof COURSE_INCLUDE }>;
@@ -56,6 +65,7 @@ export class CoursesService {
         title: dto.title,
         description: dto.description,
         thumbnailUrl: dto.thumbnailUrl,
+        progressionMode: dto.progressionMode,
         slug,
         status: CourseStatus.DRAFT,
       },
@@ -252,6 +262,7 @@ export class CoursesService {
         title: dto.title,
         description: dto.description,
         thumbnailUrl: dto.thumbnailUrl,
+        progressionMode: dto.progressionMode,
       },
       include: COURSE_INCLUDE,
     });
@@ -505,6 +516,7 @@ export class CoursesService {
       slug: course.slug,
       description: course.description,
       status: course.status,
+      progressionMode: course.progressionMode,
       thumbnailUrl: course.thumbnailUrl,
       tutor: course.tutor
         ? {

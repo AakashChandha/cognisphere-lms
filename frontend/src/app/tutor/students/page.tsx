@@ -1,5 +1,6 @@
 "use client";
 
+import { useRouter } from "next/navigation";
 import { useQuery } from "@tanstack/react-query";
 import { PageHeader } from "@/components/shared/page-header";
 import { SearchInput } from "@/components/shared/search-input";
@@ -12,6 +13,7 @@ import { formatDate, getInitials, pluralize } from "@/lib/utils/format";
 import type { Student } from "@/types/people";
 
 export default function TutorStudentsPage() {
+  const router = useRouter();
   const { page, pageSize, search, setPage, setPageSize, setSearch } = usePaginationState();
 
   const { data, isLoading, isError, refetch } = useQuery({
@@ -43,7 +45,10 @@ export default function TutorStudentsPage() {
 
   return (
     <div className="space-y-6">
-      <PageHeader title="My Students" description="Students enrolled across your courses." />
+      <PageHeader
+        title="My Students"
+        description="Students enrolled across your courses. Click one to see how far they have got."
+      />
       <SearchInput value={search} onChange={setSearch} placeholder="Search students by name or email" />
 
       <DataTable
@@ -55,6 +60,8 @@ export default function TutorStudentsPage() {
         onRetry={() => void refetch()}
         emptyTitle="No students yet"
         emptyDescription="Students appear here once you enrol them in one of your courses."
+        onRowClick={(student) => router.push(`/tutor/students/${student.id}`)}
+        rowAriaLabel={(student) => `View ${student.firstName} ${student.lastName}'s progress`}
       />
 
       {data ? <PaginationControls meta={data.meta} onPageChange={setPage} onPageSizeChange={setPageSize} /> : null}

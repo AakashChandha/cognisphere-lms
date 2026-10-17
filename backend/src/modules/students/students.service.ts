@@ -1,11 +1,25 @@
 import { Injectable, NotFoundException } from '@nestjs/common';
-import { CourseStatus, Prisma } from '@prisma/client';
+import { AssessmentStatus, AttemptStatus, CourseStatus, Prisma } from '@prisma/client';
 import { PrismaService } from '../../prisma/prisma.service';
 import { buildPaginatedResult } from '../../common/utils/pagination.util';
 import { PaginatedResult } from '../../common/interfaces/paginated-result.interface';
 import { PaginationQueryDto } from '../../common/dto/pagination-query.dto';
 import { StudentResponseDto } from './dto/student-response.dto';
 import { StudentDashboardDto } from './dto/student-dashboard.dto';
+import { computeAssessmentStanding } from '../assessments/assessment-standing.util';
+import {
+  StudentProgressCourseAssessmentDto,
+  StudentProgressDetailDto,
+} from './dto/student-progress.dto';
+
+/** One attempt, reduced to what a standing is computed from. */
+type AttemptStanding = {
+  id: string;
+  assessmentId: string;
+  status: AttemptStatus;
+  scorePercent: number | null;
+  attemptNumber: number;
+};
 
 const STUDENT_INCLUDE = {
   user: true,
@@ -156,6 +170,207 @@ export class StudentsService {
         title: a.title,
         createdAt: a.createdAt,
       })),
+    };
+  }
+
+  /**
+   * Everything a tutor or master needs on the detail screen for one student:
+   * per course, lessons done/total with a percent, which lessons are ticked
+   * and how the published assessments went.
+   *
+   * `tutorId` scopes it to that tutor's own courses; pass `null` for the
+   * master view, which spans every course. The course filter is the only
+   * difference between the two routes, so both share this method.
+   *
+   * Batched deliberately: a handful of `in:` queries, never one per lesson or
+   * per assessment.
+   */
+  async getProgressDetail(studentId: string, tutorId: string | null): Promise<StudentProgressDetailDto> {
+    const student = await this.prisma.student.findUnique({
+      where: { id: studentId },
+      include: STUDENT_INCLUDE,
+    });
+
+    if (!student) {
+      throw new NotFoundException('Student not found');
+    }
+
+    const enrollments = await this.prisma.enrollment.findMany({
+      where: {
+        studentId: student.id,
+        ...(tutorId ? { course: { tutorId } } : {}),
+      },
+      include: {
+        course: {
+          select: { id: true, title: true, thumbnailUrl: true, progressionMode: true },
+        },
+      },
+      orderBy: { enrolledAt: 'desc' },
+    });
+
+    // A tutor may only see a student they actually teach; existence is not
+    // theirs to confirm, so this is a 404 rather than a 403.
+    if (tutorId && enrollments.length === 0) {
+      throw new NotFoundException('Student not found');
+    }
+
+    const courseIds = enrollments.map((e) => e.course.id);
+
+    const [lessons, completions, assessments] = await Promise.all([
+      this.prisma.lesson.findMany({
+        where: { courseId: { in: courseIds } },
+        select: { id: true, courseId: true, title: true, orderIndex: true },
+        orderBy: { orderIndex: 'asc' },
+      }),
+      this.prisma.lessonCompletion.findMany({
+        where: { studentId: student.id, lesson: { courseId: { in: courseIds } } },
+        select: { lessonId: true, completedAt: true },
+      }),
+      // Drafts are invisible to the student, so they are not progress.
+      this.prisma.assessment.findMany({
+        where: { courseId: { in: courseIds }, status: AssessmentStatus.PUBLISHED },
+        select: {
+          id: true,
+          courseId: true,
+          title: true,
+          type: true,
+          passPercent: true,
+          orderIndex: true,
+          createdAt: true,
+        },
+        orderBy: [{ orderIndex: 'asc' }, { createdAt: 'asc' }],
+      }),
+    ]);
+
+    const attempts = await this.prisma.assessmentAttempt.findMany({
+      where: { studentId: student.id, assessmentId: { in: assessments.map((a) => a.id) } },
+      select: {
+        id: true,
+        assessmentId: true,
+        status: true,
+        scorePercent: true,
+        attemptNumber: true,
+        startedAt: true,
+        submittedAt: true,
+        gradedAt: true,
+      },
+      orderBy: { attemptNumber: 'asc' },
+    });
+
+    const completedAtByLesson = new Map(completions.map((c) => [c.lessonId, c.completedAt]));
+
+    const courses = enrollments.map((enrollment) => {
+      const course = enrollment.course;
+      const courseLessons = lessons.filter((l) => l.courseId === course.id);
+      const courseAssessments = assessments.filter((a) => a.courseId === course.id);
+
+      const lessonDtos = courseLessons.map((lesson) => ({
+        id: lesson.id,
+        title: lesson.title,
+        orderIndex: lesson.orderIndex,
+        isCompleted: completedAtByLesson.has(lesson.id),
+        completedAt: completedAtByLesson.get(lesson.id) ?? null,
+      }));
+
+      const completedLessons = lessonDtos.filter((l) => l.isCompleted).length;
+      // Same rule as CoursesService.getProgress: the next lesson is the first
+      // one in course order that is not done yet.
+      const next = lessonDtos.find((l) => !l.isCompleted) ?? null;
+
+      const assessmentDtos = courseAssessments.map((assessment) =>
+        this.toProgressAssessmentDto(
+          assessment,
+          attempts.filter((att) => att.assessmentId === assessment.id),
+        ),
+      );
+
+      const activity = [
+        ...lessonDtos.map((l) => l.completedAt),
+        // `AssessmentAttempt` has no `updatedAt` column, so an attempt's last
+        // activity is the newest of the stamps it does carry.
+        ...attempts
+          .filter((att) => courseAssessments.some((a) => a.id === att.assessmentId))
+          .flatMap((att) => [att.gradedAt, att.submittedAt, att.startedAt]),
+      ].filter((d): d is Date => d !== null);
+
+      return {
+        courseId: course.id,
+        courseTitle: course.title,
+        thumbnailUrl: course.thumbnailUrl,
+        progressionMode: course.progressionMode,
+        enrolledAt: enrollment.enrolledAt,
+        completedLessons,
+        totalLessons: lessonDtos.length,
+        percent: this.toPercent(completedLessons, lessonDtos.length),
+        nextLessonId: next?.id ?? null,
+        nextLessonTitle: next?.title ?? null,
+        lastActivityAt:
+          activity.length > 0 ? new Date(Math.max(...activity.map((d) => d.getTime()))) : null,
+        lessons: lessonDtos,
+        assessments: assessmentDtos,
+      };
+    });
+
+    const lessonsCompleted = courses.reduce((sum, c) => sum + c.completedLessons, 0);
+    const lessonsTotal = courses.reduce((sum, c) => sum + c.totalLessons, 0);
+    const allAssessments = courses.flatMap((c) => c.assessments);
+
+    return {
+      student: {
+        id: student.id,
+        userId: student.userId,
+        firstName: student.user.firstName,
+        lastName: student.user.lastName,
+        email: student.user.email,
+        phone: student.phone,
+        avatarUrl: student.user.avatarUrl,
+        isActive: student.user.isActive,
+        createdAt: student.createdAt,
+      },
+      totals: {
+        coursesCount: courses.length,
+        completedCoursesCount: courses.filter(
+          (c) => c.totalLessons > 0 && c.completedLessons === c.totalLessons,
+        ).length,
+        lessonsCompleted,
+        lessonsTotal,
+        overallPercent: this.toPercent(lessonsCompleted, lessonsTotal),
+        assessmentsPassed: allAssessments.filter((a) => a.status === AttemptStatus.PASSED).length,
+        assessmentsTotal: allAssessments.length,
+      },
+      courses,
+    };
+  }
+
+  private toPercent(done: number, total: number): number {
+    return total > 0 ? Math.round((100 * done) / total) : 0;
+  }
+
+  /**
+   * The student's standing on one assessment, from the same helper the
+   * student's own assessment list uses, so staff and student can never see
+   * different answers to "did they pass?".
+   */
+  private toProgressAssessmentDto(
+    assessment: {
+      id: string;
+      title: string;
+      type: StudentProgressCourseAssessmentDto['type'];
+      passPercent: number;
+    },
+    myAttempts: AttemptStanding[],
+  ): StudentProgressCourseAssessmentDto {
+    const standing = computeAssessmentStanding(myAttempts);
+
+    return {
+      id: assessment.id,
+      title: assessment.title,
+      type: assessment.type,
+      status: standing.status,
+      passPercent: assessment.passPercent,
+      bestScorePercent: standing.bestScorePercent,
+      attemptsCount: standing.attemptsCount,
+      latestAttemptId: standing.latestAttemptId,
     };
   }
 

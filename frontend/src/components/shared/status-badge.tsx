@@ -3,12 +3,14 @@ import { cn } from "@/lib/utils";
 
 type StatusTone = "neutral" | "success" | "warning" | "danger" | "info";
 
+// Tones come from semantic tokens (globals.css), so a badge is legible in
+// both themes without a per-theme override at the call site.
 const TONE_CLASSES: Record<StatusTone, string> = {
-  neutral: "bg-muted text-muted-foreground border-transparent",
-  success: "bg-emerald-500/10 text-emerald-600 border-emerald-500/20 dark:text-emerald-400",
-  warning: "bg-amber-500/10 text-amber-600 border-amber-500/20 dark:text-amber-400",
-  danger: "bg-destructive/10 text-destructive border-destructive/20",
-  info: "bg-blue-500/10 text-blue-600 border-blue-500/20 dark:text-blue-400",
+  neutral: "border-border bg-muted text-muted-foreground",
+  success: "border-success/25 bg-success/10 text-success",
+  warning: "border-warning/25 bg-warning/10 text-warning",
+  danger: "border-destructive/25 bg-destructive/10 text-destructive",
+  info: "border-info/25 bg-info/10 text-info",
 };
 
 const COURSE_STATUS_TONE: Record<string, StatusTone> = {

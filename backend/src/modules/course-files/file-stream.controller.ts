@@ -40,4 +40,21 @@ export class FileStreamController {
     res.setHeader('Cache-Control', 'private, max-age=0');
     return res.sendFile(this.localStorage.resolveAbsolutePath(file.storageKey), { acceptRanges: true });
   }
+
+  /**
+   * Course cover images, unsigned and cacheable. A cover image is not
+   * protected IP, and signing it would mean a round trip per card in a list;
+   * only `COURSE_THUMBNAIL` files are reachable here, so course material
+   * still needs a signed token.
+   */
+  @Get('thumbnail/:fileId')
+  @ApiOperation({ summary: 'Serve a course cover image (public, cacheable)' })
+  async thumbnail(@Param('fileId') fileId: string, @Res() res: Response) {
+    const file = await this.filesService.getThumbnailForPublicStream(fileId);
+
+    res.setHeader('Content-Type', file.mimeType || 'application/octet-stream');
+    res.setHeader('Content-Disposition', `inline; filename="${encodeURIComponent(file.originalName)}"`);
+    res.setHeader('Cache-Control', 'public, max-age=86400');
+    return res.sendFile(this.localStorage.resolveAbsolutePath(file.storageKey));
+  }
 }

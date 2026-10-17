@@ -1,7 +1,7 @@
 "use client";
 
 import * as React from "react";
-import { ChevronLeft, ChevronRight, FileWarning, Loader2, Pause, Play } from "lucide-react";
+import { CheckCircle2, ChevronLeft, ChevronRight, FileWarning, Loader2, Pause, Play } from "lucide-react";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
@@ -12,18 +12,76 @@ import {
   SlideNarrator,
   type SlideNarration,
 } from "@/components/shared/pptx-narration";
-import { fetchFileBlob, getFileStreamUrl } from "@/lib/api/course-files.api";
+import { fetchPreviewBytes, getFileStreamUrl, studentFilesApi } from "@/lib/api/course-files.api";
 import { getFilePreviewKind } from "@/lib/utils/file-preview";
-import type { CourseFile } from "@/types/course-file";
+import type { PreviewFile } from "@/types/course-file";
+import type { FileViewedResult } from "@/types/lesson";
 import { ApiError } from "@/types/api";
 
-interface FilePreviewPaneProps {
-  file: CourseFile;
-  /** Fired when a video plays to the end (used to auto-complete a lesson). */
-  onVideoEnded?: () => void;
+/**
+ * Files already reported in this browser session. Keeps the call idempotent on
+ * the client as well as the server, so re-opening a file costs nothing.
+ */
+const reportedFileIds = new Set<string>();
+
+/** A video counts as watched at this share of its duration. */
+const VIDEO_COMPLETE_RATIO = 0.95;
+/**
+ * The native PDF viewer runs in a cross-origin iframe, so the page the student
+ * is on cannot be read. Instead they confirm by hand, and the confirmation
+ * only wakes up once the document has been open for this long.
+ */
+const PDF_MIN_OPEN_MS = 20_000;
+
+/**
+ * Reports "the student reached the end of this file" exactly once, never
+ * blocking or interrupting the UI: a failure is swallowed and simply leaves the
+ * file open to being reported again later.
+ */
+function useViewReporter(
+  file: PreviewFile,
+  enabled: boolean,
+  onViewed: ((result: FileViewedResult) => void) | undefined,
+) {
+  const alreadyKnown = file.isViewed === true || reportedFileIds.has(file.id);
+  const [reported, setReported] = React.useState(enabled && alreadyKnown);
+  const onViewedRef = React.useRef(onViewed);
+
+  React.useEffect(() => {
+    onViewedRef.current = onViewed;
+  }, [onViewed]);
+
+  const report = React.useCallback(() => {
+    if (!enabled || reportedFileIds.has(file.id)) return;
+    reportedFileIds.add(file.id);
+    setReported(true);
+    void studentFilesApi
+      .markViewed(file.id)
+      .then((result) => onViewedRef.current?.(result))
+      .catch(() => {
+        // Offline or a transient 5xx: forget it so a later attempt can retry.
+        reportedFileIds.delete(file.id);
+        setReported(false);
+      });
+  }, [enabled, file.id]);
+
+  return { reported, report };
 }
 
-export function FilePreviewPane({ file, onVideoEnded }: FilePreviewPaneProps) {
+interface FilePreviewPaneProps {
+  file: PreviewFile;
+  /** Fired when a video plays to the end (used to auto-complete a lesson). */
+  onVideoEnded?: () => void;
+  /**
+   * Student mode: record progress through the file with
+   * `POST /student/files/:id/viewed` when its end is reached.
+   */
+  trackViewing?: boolean;
+  /** Called once the server has accepted the view. */
+  onViewed?: (result: FileViewedResult) => void;
+}
+
+export function FilePreviewPane({ file, onVideoEnded, trackViewing = false, onViewed }: FilePreviewPaneProps) {
   const previewKind = getFilePreviewKind(file.mimeType, file.originalName);
   // PDF and video get a signed same-origin URL the browser streams directly
   // (Range requests, no full download). PPTX is rendered client-side from
@@ -32,6 +90,7 @@ export function FilePreviewPane({ file, onVideoEnded }: FilePreviewPaneProps) {
   const [arrayBuffer, setArrayBuffer] = React.useState<ArrayBuffer | null>(null);
   const [isLoading, setIsLoading] = React.useState(previewKind !== null);
   const [error, setError] = React.useState<string | null>(null);
+  const { reported, report } = useViewReporter(file, trackViewing, onViewed);
 
   React.useEffect(() => {
     let cancelled = false;
@@ -46,9 +105,9 @@ export function FilePreviewPane({ file, onVideoEnded }: FilePreviewPaneProps) {
 
       try {
         if (previewKind === "pptx") {
-          const blob = await fetchFileBlob(file.downloadUrl);
+          const bytes = await fetchPreviewBytes(file);
           if (cancelled) return;
-          setArrayBuffer(await blob.arrayBuffer());
+          setArrayBuffer(bytes);
         } else {
           const { url } = await getFileStreamUrl(file);
           if (cancelled) return;
@@ -88,28 +147,120 @@ export function FilePreviewPane({ file, onVideoEnded }: FilePreviewPaneProps) {
   if (error) return <PreviewMessage message={error} />;
 
   if (previewKind === "pdf" && streamUrl) {
-    // #toolbar=0 hides the viewer's download/print controls: students view only.
     return (
-      <iframe
+      <PdfPreviewPane
+        src={streamUrl}
         title={file.originalName}
-        src={`${streamUrl}#toolbar=0`}
-        className="h-full min-h-[60vh] w-full border-0 sm:min-h-[70vh]"
+        showConfirmation={trackViewing}
+        confirmed={reported}
+        onConfirm={report}
       />
     );
   }
 
   if (previewKind === "video" && streamUrl) {
-    return <VideoPreviewPane src={streamUrl} title={file.originalName} onEnded={onVideoEnded} />;
+    return (
+      <VideoPreviewPane
+        src={streamUrl}
+        title={file.originalName}
+        onEnded={() => {
+          report();
+          onVideoEnded?.();
+        }}
+        onMostlyWatched={report}
+      />
+    );
   }
 
   if (previewKind === "pptx" && arrayBuffer) {
-    return <PptxPreviewPane buffer={arrayBuffer} />;
+    return <PptxPreviewPane buffer={arrayBuffer} onReachedLastSlide={report} />;
   }
 
   return <PreviewMessage message="The file could not be prepared for preview." />;
 }
 
-function VideoPreviewPane({ src, title, onEnded }: { src: string; title: string; onEnded?: () => void }) {
+/**
+ * The PDF is shown by the browser's own viewer inside an iframe with
+ * `#toolbar=0`, which hides download and print. That iframe is cross-origin,
+ * so the page number cannot be read and "reached the last page" cannot be
+ * detected. Rather than pretend, the student confirms, and the confirmation
+ * only becomes available once the document has been open for a sensible while.
+ */
+function PdfPreviewPane({
+  src,
+  title,
+  showConfirmation,
+  confirmed,
+  onConfirm,
+}: {
+  src: string;
+  title: string;
+  showConfirmation: boolean;
+  confirmed: boolean;
+  onConfirm: () => void;
+}) {
+  const [secondsLeft, setSecondsLeft] = React.useState(() =>
+    showConfirmation ? Math.ceil(PDF_MIN_OPEN_MS / 1000) : 0,
+  );
+
+  React.useEffect(() => {
+    if (!showConfirmation || confirmed) return;
+    const opened = Date.now();
+    const tick = setInterval(() => {
+      const remaining = Math.ceil((PDF_MIN_OPEN_MS - (Date.now() - opened)) / 1000);
+      setSecondsLeft(remaining > 0 ? remaining : 0);
+      if (remaining <= 0) clearInterval(tick);
+    }, 1000);
+    return () => clearInterval(tick);
+  }, [showConfirmation, confirmed]);
+
+  const frame = (
+    <iframe
+      title={title}
+      src={`${src}#toolbar=0`}
+      className="h-full min-h-[60vh] w-full border-0 sm:min-h-[70vh]"
+    />
+  );
+
+  if (!showConfirmation) return frame;
+
+  return (
+    <div className="flex h-full min-h-0 flex-col">
+      <div className="min-h-0 flex-1">{frame}</div>
+      <div className="flex flex-col gap-2 border-t border-border bg-background px-3 py-2 sm:flex-row sm:items-center sm:justify-between">
+        <p className="text-xs text-muted-foreground sm:text-sm">
+          {confirmed
+            ? "Marked as read. It counts towards completing this lesson."
+            : secondsLeft > 0
+              ? `Read to the end, then confirm below (available in ${secondsLeft}s).`
+              : "Scrolled to the end? Confirm so this document counts as complete."}
+        </p>
+        {confirmed ? (
+          <span className="flex shrink-0 items-center gap-1.5 text-sm font-medium text-emerald-700 dark:text-emerald-400">
+            <CheckCircle2 className="size-4" /> Finished
+          </span>
+        ) : (
+          <Button size="sm" onClick={onConfirm} disabled={secondsLeft > 0} className="shrink-0">
+            <CheckCircle2 className="size-4" />
+            I&apos;ve finished reading this
+          </Button>
+        )}
+      </div>
+    </div>
+  );
+}
+
+function VideoPreviewPane({
+  src,
+  title,
+  onEnded,
+  onMostlyWatched,
+}: {
+  src: string;
+  title: string;
+  onEnded?: () => void;
+  onMostlyWatched?: () => void;
+}) {
   const [failed, setFailed] = React.useState(false);
 
   if (failed) {
@@ -131,6 +282,18 @@ function VideoPreviewPane({ src, title, onEnded }: { src: string; title: string;
         playsInline
         onError={() => setFailed(true)}
         onEnded={onEnded}
+        // Counts as watched at 95%: nobody sits through the end credits, and
+        // `ended` never fires if the student closes the tab a second early.
+        onTimeUpdate={
+          onMostlyWatched
+            ? (event) => {
+                const video = event.currentTarget;
+                if (video.duration > 0 && video.currentTime / video.duration >= VIDEO_COMPLETE_RATIO) {
+                  onMostlyWatched();
+                }
+              }
+            : undefined
+        }
         className="max-h-[75dvh] max-w-full object-contain"
       >
         Your browser does not support video playback.
@@ -209,7 +372,14 @@ function writeStoredAutoAdvance(value: boolean) {
   }
 }
 
-function PptxPreviewPane({ buffer }: { buffer: ArrayBuffer }) {
+function PptxPreviewPane({
+  buffer,
+  onReachedLastSlide,
+}: {
+  buffer: ArrayBuffer;
+  /** Fired once the deck's final slide is on screen (however it was reached). */
+  onReachedLastSlide?: () => void;
+}) {
   const frameRef = React.useRef<HTMLDivElement>(null);
   const hostRef = React.useRef<HTMLDivElement>(null);
   const previewerRef = React.useRef<PptxPreviewer | null>(null);
@@ -583,6 +753,15 @@ function PptxPreviewPane({ buffer }: { buffer: ArrayBuffer }) {
     window.addEventListener("keydown", onKeyDown);
     return () => window.removeEventListener("keydown", onKeyDown);
   }, [goToNext, goToPrevious, toggleNarration]);
+
+  // Reaching the final slide — by Next, by the keyboard, or by narration
+  // auto-advance — means the student has been through the whole deck. Every
+  // route sets `slideIndex`, so watching it covers all of them (including a
+  // one-slide deck, which is complete as soon as it renders).
+  const lastSlideReached = slideCount > 0 && slideIndex >= slideCount - 1;
+  React.useEffect(() => {
+    if (lastSlideReached) onReachedLastSlide?.();
+  }, [lastSlideReached, onReachedLastSlide]);
 
   // Speech must never outlive the viewer (dialog close, route change).
   React.useEffect(() => {

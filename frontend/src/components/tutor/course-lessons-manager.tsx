@@ -3,7 +3,7 @@
 import * as React from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { toast } from "sonner";
-import { Plus, Pencil, Trash2, GripVertical, ArrowUp, ArrowDown, BookOpen } from "lucide-react";
+import { Plus, Pencil, Trash2, GripVertical, ArrowUp, ArrowDown, BookOpen, Lock } from "lucide-react";
 import {
   DndContext,
   KeyboardSensor,
@@ -31,15 +31,18 @@ import { tutorLessonsApi } from "@/lib/api/lessons.api";
 import { pluralize } from "@/lib/utils/format";
 import { cn } from "@/lib/utils";
 import type { Lesson } from "@/types/lesson";
+import type { CourseProgressionMode } from "@/types/course";
 import { ApiError } from "@/types/api";
 
 interface CourseLessonsManagerProps {
   courseId: string;
   /** Deactivated course seen by its tutor: lessons can be opened and read, nothing can change. */
   readOnly?: boolean;
+  /** When `SEQUENTIAL`, the order below is also the order students are locked into. */
+  progressionMode?: CourseProgressionMode;
 }
 
-export function CourseLessonsManager({ courseId, readOnly = false }: CourseLessonsManagerProps) {
+export function CourseLessonsManager({ courseId, readOnly = false, progressionMode }: CourseLessonsManagerProps) {
   const queryClient = useQueryClient();
   const queryKey = ["tutor", "courses", courseId, "lessons"];
   const [formState, setFormState] = React.useState<{ open: boolean; lesson: Lesson | null }>({
@@ -146,11 +149,19 @@ export function CourseLessonsManager({ courseId, readOnly = false }: CourseLesso
   return (
     <div className="space-y-4">
       <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
-        <p className="text-sm text-muted-foreground">
-          {readOnly
-            ? "Students work through lessons in this order. Open a lesson to read its notes."
-            : "Students work through lessons in this order. Drag the handle or use the arrows to rearrange."}
-        </p>
+        <div className="space-y-1">
+          <p className="text-sm text-muted-foreground">
+            {readOnly
+              ? "Students work through lessons in this order. Open a lesson to read its notes."
+              : "Students work through lessons in this order. Drag the handle or use the arrows to rearrange."}
+          </p>
+          {progressionMode === "SEQUENTIAL" ? (
+            <p className="flex items-center gap-1.5 text-xs text-muted-foreground">
+              <Lock className="size-3.5" />
+              This course is set to unlock in order, so a lesson stays locked until every earlier one is finished.
+            </p>
+          ) : null}
+        </div>
         {!readOnly ? (
           <Button size="sm" onClick={() => setFormState({ open: true, lesson: null })}>
             <Plus className="size-3.5" />

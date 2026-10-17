@@ -4,6 +4,7 @@ A Learning Management System for a NEBOSH training company, built with **NestJS 
 
 | Document | Purpose |
 |----------|---------|
+| [DEPLOYMENT.md](./DEPLOYMENT.md) | Publishing a change to the live server, explained in plain English |
 | [PROD_DEPLOYMENT.md](./PROD_DEPLOYMENT.md) | First-time production setup on Lightsail (about an hour, once) |
 | [OPERATIONS.md](./OPERATIONS.md) | Day-to-day maintenance: deploy, roll back, restore, alerts |
 | [Infrastructure plan](https://claude.ai/artifact/X3XfYcgDESCEnzcBe1ia97) | The decision write-up with budget, alternatives and rollout phases |
@@ -145,6 +146,7 @@ cognisphere-lms/
 ├── docker-compose.dev.yml     # Development stack (hot reload)
 ├── .env.example
 ├── .gitignore
+├── DEPLOYMENT.md              # Publishing to the live server (plain English)
 ├── PROD_DEPLOYMENT.md         # First-time production setup
 ├── OPERATIONS.md              # Day-to-day maintenance runbook
 └── README.md
@@ -424,7 +426,7 @@ Example login request:
 
 ## Production
 
-First-time setup on Lightsail: **[PROD_DEPLOYMENT.md](./PROD_DEPLOYMENT.md)**. Everything after that: **[OPERATIONS.md](./OPERATIONS.md)**.
+Publishing a change, step by step and jargon-free: **[DEPLOYMENT.md](./DEPLOYMENT.md)**. First-time setup on Lightsail: **[PROD_DEPLOYMENT.md](./PROD_DEPLOYMENT.md)**. Maintenance, backups and alerts: **[OPERATIONS.md](./OPERATIONS.md)**.
 
 Deploying a change, once the server exists:
 

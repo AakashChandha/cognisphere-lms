@@ -1,5 +1,6 @@
 import { ApiProperty, ApiPropertyOptional } from '@nestjs/swagger';
-import { IsOptional, IsString, IsUUID, IsUrl, MaxLength, MinLength } from 'class-validator';
+import { IsEnum, IsOptional, IsString, IsUUID, IsUrl, MaxLength, MinLength } from 'class-validator';
+import { CourseProgressionMode } from '@prisma/client';
 
 export class CreateCourseDto {
   @ApiProperty({ example: 'Introduction to Web Development', maxLength: 160 })
@@ -13,10 +14,23 @@ export class CreateCourseDto {
   @MinLength(10)
   description: string;
 
-  @ApiPropertyOptional()
+  @ApiPropertyOptional({
+    description:
+      'Cover image URL. Pasting a link still works; uploading an image through POST /{tutor|master}/courses/:id/thumbnail overwrites it.',
+  })
   @IsOptional()
   @IsUrl()
   thumbnailUrl?: string;
+
+  @ApiPropertyOptional({
+    enum: CourseProgressionMode,
+    default: CourseProgressionMode.FREE,
+    description:
+      'FREE: lessons can be taken in any order. SEQUENTIAL: a lesson unlocks only once every earlier lesson is complete.',
+  })
+  @IsOptional()
+  @IsEnum(CourseProgressionMode)
+  progressionMode?: CourseProgressionMode;
 
   @ApiPropertyOptional({
     description:

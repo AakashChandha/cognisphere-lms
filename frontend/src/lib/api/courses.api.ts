@@ -1,8 +1,33 @@
 import { apiClient, unwrap, unwrapPaginated } from "./client";
 import { cleanParams } from "./query-string";
 import type { ApiEnvelope, PaginationQuery } from "@/types/api";
-import type { Course, CreateCoursePayload, QueryCourseParams, UpdateCoursePayload } from "@/types/course";
+import type {
+  Course,
+  CourseThumbnail,
+  CreateCoursePayload,
+  QueryCourseParams,
+  UpdateCoursePayload,
+} from "@/types/course";
 import type { Student } from "@/types/people";
+
+/**
+ * Cover image upload. The endpoint pair exists under both `/tutor` and
+ * `/master`, so the caller passes the role it is acting as.
+ */
+export function uploadCourseThumbnail(role: "tutor" | "master", courseId: string, file: File) {
+  const formData = new FormData();
+  formData.append("file", file);
+  return unwrap(
+    apiClient.post<ApiEnvelope<CourseThumbnail>>(`/${role}/courses/${courseId}/thumbnail`, formData, {
+      headers: { "Content-Type": "multipart/form-data" },
+      timeout: 2 * 60 * 1000,
+    }),
+  );
+}
+
+export function removeCourseThumbnail(role: "tutor" | "master", courseId: string) {
+  return unwrap(apiClient.delete<ApiEnvelope<null>>(`/${role}/courses/${courseId}/thumbnail`));
+}
 
 export const tutorCoursesApi = {
   list(params: QueryCourseParams) {

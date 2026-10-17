@@ -27,10 +27,61 @@ enum CourseStatus {
   DEACTIVATED
 }
 
+/// FREE: lessons can be taken in any order. SEQUENTIAL ("unskippable"): a
+/// lesson only unlocks once every earlier lesson in the course is complete.
+enum CourseProgressionMode {
+  FREE
+  SEQUENTIAL
+}
+
+/// What a stored file is for. Everything shares one upload/stream pipeline;
+/// the purpose keeps each list showing only what belongs in it.
+enum FilePurpose {
+  /// Course/lesson material a student studies (the original behaviour).
+  LESSON_MATERIAL
+  /// External study resource (book, reference) shown in the Materials tab.
+  STUDY_MATERIAL
+  /// The question paper handed to a student for a DOCUMENT assessment.
+  QUESTION_PAPER
+  /// A student's completed answer document, attached to one attempt.
+  SUBMISSION
+  /// A course cover image, served publicly and unsigned.
+  COURSE_THUMBNAIL
+}
+
+enum AssessmentType {
+  /// Auto-graded multiple choice.
+  MCQ
+  /// Tutor hands out a paper, the student uploads a completed document.
+  DOCUMENT
+}
+
+enum AssessmentStatus {
+  DRAFT
+  PUBLISHED
+}
+
+/// Lifecycle of one student run at an assessment. MCQ attempts jump straight
+/// from IN_PROGRESS to PASSED/FAILED; DOCUMENT attempts wait in SUBMITTED
+/// until a tutor grades them.
+enum AttemptStatus {
+  IN_PROGRESS
+  SUBMITTED
+  PASSED
+  FAILED
+}
+
 enum AnnouncementAudience {
   ALL
   STUDENTS
   TUTORS
+}
+
+/// Who the thread is waiting on. RESOLVED is final: the student closes it.
+enum QueryStatus {
+  OPEN
+  ANSWERED
+  RESOLVED
 }
 
 enum AuditAction {
@@ -62,6 +113,18 @@ enum AuditAction {
   COURSE_TUTOR_CHANGED
   COURSE_DEACTIVATED
   COURSE_REACTIVATED
+  ASSESSMENT_CREATED
+  ASSESSMENT_UPDATED
+  ASSESSMENT_DELETED
+  ASSESSMENT_PUBLISHED
+  ASSESSMENT_UNPUBLISHED
+  ASSESSMENT_SUBMITTED
+  ASSESSMENT_GRADED
+  STUDY_MATERIAL_UPLOADED
+  STUDY_MATERIAL_DELETED
+  QUERY_CREATED
+  QUERY_REPLIED
+  QUERY_RESOLVED
 }
 
 // ---------------------------------------------------------------------------
@@ -69,28 +132,30 @@ enum AuditAction {
 // ---------------------------------------------------------------------------
 
 model User {
-  id           String   @id @default(uuid())
-  email        String   @unique
-  passwordHash String   @map("password_hash")
-  firstName    String   @map("first_name")
-  lastName     String   @map("last_name")
-  avatarUrl    String?  @map("avatar_url")
-  isActive     Boolean  @default(true) @map("is_active")
+  id                 String   @id @default(uuid())
+  email              String   @unique
+  passwordHash       String   @map("password_hash")
+  firstName          String   @map("first_name")
+  lastName           String   @map("last_name")
+  avatarUrl          String?  @map("avatar_url")
+  isActive           Boolean  @default(true) @map("is_active")
   /// Set when an admin mints or resets the password; cleared when the user picks their own.
-  mustChangePassword Boolean @default(false) @map("must_change_password")
-  createdAt    DateTime @default(now()) @map("created_at")
-  updatedAt    DateTime @updatedAt @map("updated_at")
+  mustChangePassword Boolean  @default(false) @map("must_change_password")
+  createdAt          DateTime @default(now()) @map("created_at")
+  updatedAt          DateTime @updatedAt @map("updated_at")
 
-  userRoles          UserRole[]
-  student            Student?
-  tutor              Tutor?
-  refreshTokens      RefreshToken[]
-  auditLogs          AuditLog[]        @relation("AuditActor")
-  authoredAnnouncements Announcement[] @relation("AnnouncementAuthor")
-  uploadedFiles      CourseFile[]      @relation("FileUploader")
+  userRoles             UserRole[]
+  student               Student?
+  tutor                 Tutor?
+  refreshTokens         RefreshToken[]
+  auditLogs             AuditLog[]          @relation("AuditActor")
+  authoredAnnouncements Announcement[]      @relation("AnnouncementAuthor")
+  uploadedFiles         CourseFile[]        @relation("FileUploader")
+  gradedAttempts        AssessmentAttempt[] @relation("AttemptGrader")
+  queryMessages         CourseQueryMessage[] @relation("QueryMessageAuthor")
 
-  @@map("users")
   @@index([isActive])
+  @@map("users")
 }
 
 model Role {
@@ -113,23 +178,23 @@ model UserRole {
   role Role @relation(fields: [roleId], references: [id], onDelete: Cascade)
 
   @@unique([userId, roleId])
-  @@map("user_roles")
   @@index([roleId])
+  @@map("user_roles")
 }
 
 model RefreshToken {
-  id        String    @id @default(uuid())
-  userId    String    @map("user_id")
-  tokenHash String    @map("token_hash")
-  expiresAt DateTime  @map("expires_at")
-  revokedAt DateTime? @map("revoked_at")
-  createdAt DateTime  @default(now()) @map("created_at")
-  createdByIp String? @map("created_by_ip")
+  id          String    @id @default(uuid())
+  userId      String    @map("user_id")
+  tokenHash   String    @map("token_hash")
+  expiresAt   DateTime  @map("expires_at")
+  revokedAt   DateTime? @map("revoked_at")
+  createdAt   DateTime  @default(now()) @map("created_at")
+  createdByIp String?   @map("created_by_ip")
 
   user User @relation(fields: [userId], references: [id], onDelete: Cascade)
 
-  @@map("refresh_tokens")
   @@index([userId])
+  @@map("refresh_tokens")
 }
 
 // ---------------------------------------------------------------------------
@@ -144,9 +209,12 @@ model Student {
   createdAt DateTime @default(now()) @map("created_at")
   updatedAt DateTime @updatedAt @map("updated_at")
 
-  user        User         @relation(fields: [userId], references: [id], onDelete: Cascade)
-  enrollments Enrollment[]
+  user              User                @relation(fields: [userId], references: [id], onDelete: Cascade)
+  enrollments       Enrollment[]
   lessonCompletions LessonCompletion[]
+  fileViews         FileView[]
+  attempts          AssessmentAttempt[]
+  queries           CourseQuery[]
 
   @@map("students")
 }
@@ -171,68 +239,90 @@ model Tutor {
 // ---------------------------------------------------------------------------
 
 model Course {
-  id            String       @id @default(uuid())
+  id                 String                @id @default(uuid())
   /// Null when the owning tutor was removed: the course stays as company material until an admin reassigns it.
-  tutorId       String?      @map("tutor_id")
-  title         String
-  slug          String       @unique
-  description   String
-  status        CourseStatus @default(DRAFT)
-  thumbnailUrl  String?      @map("thumbnail_url")
-  publishedAt   DateTime?    @map("published_at")
-  archivedAt    DateTime?    @map("archived_at")
+  tutorId            String?               @map("tutor_id")
+  title              String
+  slug               String                @unique
+  description        String
+  status             CourseStatus          @default(DRAFT)
+  /// Whether students may jump between lessons freely or must finish each one.
+  progressionMode    CourseProgressionMode @default(FREE) @map("progression_mode")
+  thumbnailUrl       String?               @map("thumbnail_url")
+  publishedAt        DateTime?             @map("published_at")
+  archivedAt         DateTime?             @map("archived_at")
   /// Set by an administrator; while present the course is hidden from students and read-only for its tutor.
-  deactivatedAt       DateTime? @map("deactivated_at")
-  deactivationReason  String?   @map("deactivation_reason")
-  createdAt     DateTime     @default(now()) @map("created_at")
-  updatedAt     DateTime     @updatedAt @map("updated_at")
+  deactivatedAt      DateTime?             @map("deactivated_at")
+  deactivationReason String?               @map("deactivation_reason")
+  createdAt          DateTime              @default(now()) @map("created_at")
+  updatedAt          DateTime              @updatedAt @map("updated_at")
 
   tutor         Tutor?         @relation(fields: [tutorId], references: [id], onDelete: SetNull)
   lessons       Lesson[]
   files         CourseFile[]
   enrollments   Enrollment[]
   announcements Announcement[]
+  assessments   Assessment[]
+  queries       CourseQuery[]
 
-  @@map("courses")
   @@index([tutorId])
   @@index([status])
+  @@map("courses")
 }
 
 model Lesson {
-  id          String   @id @default(uuid())
-  courseId    String   @map("course_id")
-  title       String
-  content     String
-  orderIndex  Int      @default(0) @map("order_index")
-  createdAt   DateTime @default(now()) @map("created_at")
-  updatedAt   DateTime @updatedAt @map("updated_at")
+  id         String   @id @default(uuid())
+  courseId   String   @map("course_id")
+  title      String
+  content    String
+  orderIndex Int      @default(0) @map("order_index")
+  createdAt  DateTime @default(now()) @map("created_at")
+  updatedAt  DateTime @updatedAt @map("updated_at")
 
   course      Course             @relation(fields: [courseId], references: [id], onDelete: Cascade)
   files       CourseFile[]
   completions LessonCompletion[]
+  queries     CourseQuery[]
 
-  @@map("lessons")
   @@index([courseId])
+  @@map("lessons")
 }
 
 model CourseFile {
-  id           String   @id @default(uuid())
-  courseId     String   @map("course_id")
-  lessonId     String?  @map("lesson_id")
-  uploadedById String   @map("uploaded_by_id")
-  originalName String   @map("original_name")
-  storageKey   String   @map("storage_key")
-  mimeType     String   @map("mime_type")
-  sizeBytes    Int      @map("size_bytes")
-  createdAt    DateTime @default(now()) @map("created_at")
+  id           String      @id @default(uuid())
+  courseId     String      @map("course_id")
+  lessonId     String?     @map("lesson_id")
+  uploadedById String      @map("uploaded_by_id")
+  originalName String      @map("original_name")
+  storageKey   String      @map("storage_key")
+  mimeType     String      @map("mime_type")
+  sizeBytes    Int         @map("size_bytes")
+  /// What this file is for. Every existing row is LESSON_MATERIAL; each list
+  /// endpoint must filter on the purpose it serves.
+  purpose      FilePurpose @default(LESSON_MATERIAL)
+  /// STUDY_MATERIAL only: the resource's display name (e.g. the book title).
+  title        String?
+  /// STUDY_MATERIAL only: a short note about the resource.
+  description  String?
+  /// Set on the QUESTION_PAPER handed out by an assessment.
+  assessmentId String?     @map("assessment_id")
+  /// Set on a SUBMISSION uploaded against one attempt.
+  attemptId    String?     @map("attempt_id")
+  createdAt    DateTime    @default(now()) @map("created_at")
 
-  course     Course @relation(fields: [courseId], references: [id], onDelete: Cascade)
-  lesson     Lesson? @relation(fields: [lessonId], references: [id], onDelete: SetNull)
-  uploadedBy User    @relation("FileUploader", fields: [uploadedById], references: [id])
+  course     Course             @relation(fields: [courseId], references: [id], onDelete: Cascade)
+  lesson     Lesson?            @relation(fields: [lessonId], references: [id], onDelete: SetNull)
+  uploadedBy User               @relation("FileUploader", fields: [uploadedById], references: [id])
+  assessment Assessment?        @relation("AssessmentPapers", fields: [assessmentId], references: [id], onDelete: Cascade)
+  attempt    AssessmentAttempt? @relation("AttemptSubmissions", fields: [attemptId], references: [id], onDelete: Cascade)
+  views      FileView[]
 
-  @@map("course_files")
   @@index([courseId])
   @@index([lessonId])
+  @@index([purpose])
+  @@index([assessmentId])
+  @@index([attemptId])
+  @@map("course_files")
 }
 
 model Enrollment {
@@ -245,8 +335,8 @@ model Enrollment {
   course  Course  @relation(fields: [courseId], references: [id], onDelete: Cascade)
 
   @@unique([studentId, courseId])
-  @@map("enrollments")
   @@index([courseId])
+  @@map("enrollments")
 }
 
 /// One row per lesson a student has marked (or auto-marked) as finished.
@@ -260,8 +350,137 @@ model LessonCompletion {
   lesson  Lesson  @relation(fields: [lessonId], references: [id], onDelete: Cascade)
 
   @@unique([studentId, lessonId])
-  @@map("lesson_completions")
   @@index([lessonId])
+  @@map("lesson_completions")
+}
+
+/// Recorded the first time a student reaches the end of a file (last PDF
+/// page, last slide, ~95% of a video). This is what "completely seen through"
+/// means for SEQUENTIAL courses; it is a deterrent, not DRM.
+model FileView {
+  id        String   @id @default(uuid())
+  studentId String   @map("student_id")
+  fileId    String   @map("file_id")
+  viewedAt  DateTime @default(now()) @map("viewed_at")
+
+  student Student    @relation(fields: [studentId], references: [id], onDelete: Cascade)
+  file    CourseFile @relation(fields: [fileId], references: [id], onDelete: Cascade)
+
+  @@unique([studentId, fileId])
+  @@index([fileId])
+  @@map("file_views")
+}
+
+// ---------------------------------------------------------------------------
+// Assessments
+// ---------------------------------------------------------------------------
+
+/// A course-level test. MCQ assessments are auto-graded against `passPercent`;
+/// DOCUMENT assessments hand out a question paper and wait for a tutor to
+/// grade the file the student uploads back.
+model Assessment {
+  id               String           @id @default(uuid())
+  courseId         String           @map("course_id")
+  type             AssessmentType
+  title            String
+  instructions     String           @default("")
+  /// Score (0-100) an MCQ attempt must reach to pass.
+  passPercent      Int              @default(70) @map("pass_percent")
+  /// MCQ only. Null means untimed.
+  timeLimitMinutes Int?             @map("time_limit_minutes")
+  status           AssessmentStatus @default(DRAFT)
+  orderIndex       Int              @default(0) @map("order_index")
+  createdAt        DateTime         @default(now()) @map("created_at")
+  updatedAt        DateTime         @updatedAt @map("updated_at")
+
+  course    Course               @relation(fields: [courseId], references: [id], onDelete: Cascade)
+  questions AssessmentQuestion[]
+  attempts  AssessmentAttempt[]
+  /// The QUESTION_PAPER files handed out by a DOCUMENT assessment.
+  papers    CourseFile[]         @relation("AssessmentPapers")
+
+  @@index([courseId])
+  @@index([status])
+  @@map("assessments")
+}
+
+model AssessmentQuestion {
+  id           String   @id @default(uuid())
+  assessmentId String   @map("assessment_id")
+  prompt       String
+  /// Weight of this question in the score.
+  points       Int      @default(1)
+  orderIndex   Int      @default(0) @map("order_index")
+  createdAt    DateTime @default(now()) @map("created_at")
+  updatedAt    DateTime @updatedAt @map("updated_at")
+
+  assessment Assessment         @relation(fields: [assessmentId], references: [id], onDelete: Cascade)
+  options    AssessmentOption[]
+  answers    AssessmentAnswer[]
+
+  @@index([assessmentId])
+  @@map("assessment_questions")
+}
+
+model AssessmentOption {
+  id         String   @id @default(uuid())
+  questionId String   @map("question_id")
+  text       String
+  isCorrect  Boolean  @default(false) @map("is_correct")
+  orderIndex Int      @default(0) @map("order_index")
+  createdAt  DateTime @default(now()) @map("created_at")
+
+  question AssessmentQuestion @relation(fields: [questionId], references: [id], onDelete: Cascade)
+  answers  AssessmentAnswer[]
+
+  @@index([questionId])
+  @@map("assessment_options")
+}
+
+/// One student run at an assessment. Retries are unlimited: each retry is a
+/// new row with the next `attemptNumber`, and the best score is what counts.
+model AssessmentAttempt {
+  id            String        @id @default(uuid())
+  assessmentId  String        @map("assessment_id")
+  studentId     String        @map("student_id")
+  attemptNumber Int           @map("attempt_number")
+  status        AttemptStatus @default(IN_PROGRESS)
+  /// 0-100. Set on MCQ submit, or by the tutor when grading a document.
+  scorePercent  Int?          @map("score_percent")
+  feedback      String?
+  startedAt     DateTime      @default(now()) @map("started_at")
+  submittedAt   DateTime?     @map("submitted_at")
+  gradedAt      DateTime?     @map("graded_at")
+  gradedById    String?       @map("graded_by_id")
+
+  assessment  Assessment         @relation(fields: [assessmentId], references: [id], onDelete: Cascade)
+  student     Student            @relation(fields: [studentId], references: [id], onDelete: Cascade)
+  gradedBy    User?              @relation("AttemptGrader", fields: [gradedById], references: [id], onDelete: SetNull)
+  answers     AssessmentAnswer[]
+  /// The SUBMISSION files the student uploaded for this attempt.
+  submissions CourseFile[]       @relation("AttemptSubmissions")
+
+  @@unique([assessmentId, studentId, attemptNumber])
+  @@index([assessmentId])
+  @@index([studentId])
+  @@index([status])
+  @@map("assessment_attempts")
+}
+
+model AssessmentAnswer {
+  id         String  @id @default(uuid())
+  attemptId  String  @map("attempt_id")
+  questionId String  @map("question_id")
+  optionId   String? @map("option_id")
+
+  attempt  AssessmentAttempt  @relation(fields: [attemptId], references: [id], onDelete: Cascade)
+  question AssessmentQuestion @relation(fields: [questionId], references: [id], onDelete: Cascade)
+  option   AssessmentOption?  @relation(fields: [optionId], references: [id], onDelete: SetNull)
+
+  @@unique([attemptId, questionId])
+  @@index([questionId])
+  @@index([optionId])
+  @@map("assessment_answers")
 }
 
 // ---------------------------------------------------------------------------
@@ -281,9 +500,56 @@ model Announcement {
   author User    @relation("AnnouncementAuthor", fields: [authorId], references: [id])
   course Course? @relation(fields: [courseId], references: [id], onDelete: Cascade)
 
-  @@map("announcements")
   @@index([audience])
   @@index([courseId])
+  @@map("announcements")
+}
+
+// ---------------------------------------------------------------------------
+// Course queries (student <-> tutor Q&A)
+// ---------------------------------------------------------------------------
+
+/// One question thread a student raises against a course, optionally pinned to
+/// a lesson. `status` says who it is waiting on; only the student may resolve
+/// it, and a resolved thread accepts no further messages.
+model CourseQuery {
+  id            String      @id @default(uuid())
+  studentId     String      @map("student_id")
+  courseId      String      @map("course_id")
+  lessonId      String?     @map("lesson_id")
+  title         String
+  status        QueryStatus @default(OPEN)
+  /// Sort key for the inbox: the newest message, not the thread's creation.
+  lastMessageAt DateTime    @default(now()) @map("last_message_at")
+  resolvedAt    DateTime?   @map("resolved_at")
+  createdAt     DateTime    @default(now()) @map("created_at")
+  updatedAt     DateTime    @updatedAt @map("updated_at")
+
+  student  Student              @relation(fields: [studentId], references: [id], onDelete: Cascade)
+  course   Course               @relation(fields: [courseId], references: [id], onDelete: Cascade)
+  lesson   Lesson?              @relation(fields: [lessonId], references: [id], onDelete: SetNull)
+  messages CourseQueryMessage[]
+
+  @@index([courseId, status])
+  @@index([studentId, status])
+  @@index([lastMessageAt])
+  @@map("course_queries")
+}
+
+/// A single turn in a query thread. The author is a User rather than a role so
+/// that a tutor, a master stepping in, and the student all sit in one list.
+model CourseQueryMessage {
+  id        String   @id @default(uuid())
+  queryId   String   @map("query_id")
+  authorId  String   @map("author_id")
+  body      String
+  createdAt DateTime @default(now()) @map("created_at")
+
+  query  CourseQuery @relation(fields: [queryId], references: [id], onDelete: Cascade)
+  author User        @relation("QueryMessageAuthor", fields: [authorId], references: [id], onDelete: Cascade)
+
+  @@index([queryId, createdAt])
+  @@map("course_query_messages")
 }
 
 // ---------------------------------------------------------------------------
@@ -302,8 +568,8 @@ model AuditLog {
 
   actor User? @relation("AuditActor", fields: [actorId], references: [id], onDelete: SetNull)
 
-  @@map("audit_logs")
   @@index([actorId])
   @@index([action])
   @@index([createdAt])
+  @@map("audit_logs")
 }

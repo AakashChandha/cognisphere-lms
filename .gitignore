@@ -31,3 +31,11 @@ Thumbs.db
 postgres-data/
 *.pid
 backend/storage/
+
+# SSH keys and downloaded credentials (never commit)
+*.pem
+*_credentials.csv
+
+# Original design drops kept locally; the optimised copies live in frontend/public/brand/
+/loginPage_Cover_image.png
+/cgs logo.webp

@@ -1,7 +1,8 @@
 import { apiClient, unwrap, unwrapPaginated } from "./client";
 import { cleanParams } from "./query-string";
 import type { ApiEnvelope, PaginationQuery } from "@/types/api";
-import type { CourseFile, FileStreamUrl } from "@/types/course-file";
+import type { CourseFile, FileStreamUrl, PreviewFile } from "@/types/course-file";
+import type { FileViewedResult } from "@/types/lesson";
 
 function toRelativeApiUrl(url: string): string {
   // `apiClient`'s baseURL already includes `/api`; strip it from URLs returned
@@ -14,8 +15,13 @@ function toRelativeApiUrl(url: string): string {
  * can open directly. Those elements cannot send the Bearer header, and a
  * video must be streamed with Range requests rather than downloaded whole.
  */
-export async function getFileStreamUrl(file: CourseFile): Promise<FileStreamUrl> {
-  return unwrap(apiClient.get<ApiEnvelope<FileStreamUrl>>(toRelativeApiUrl(file.streamUrlEndpoint)));
+export async function getFileStreamUrl(file: PreviewFile): Promise<FileStreamUrl> {
+  const url = toRelativeApiUrl(file.streamUrlEndpoint);
+  return unwrap(
+    file.streamUrlMethod === "POST"
+      ? apiClient.post<ApiEnvelope<FileStreamUrl>>(url)
+      : apiClient.get<ApiEnvelope<FileStreamUrl>>(url),
+  );
 }
 
 /** Authenticated fetch of a course file as a Blob (PPTX preview needs the bytes in memory). */
@@ -25,6 +31,22 @@ export async function fetchFileBlob(url: string): Promise<Blob> {
     timeout: 120_000,
   });
   return response.data;
+}
+
+/**
+ * Bytes for a client-side renderer (PPTX). Course files expose an
+ * authenticated `downloadUrl`; anything else is read through its signed
+ * stream URL, which carries its own token and needs no header.
+ */
+export async function fetchPreviewBytes(file: PreviewFile): Promise<ArrayBuffer> {
+  if (file.downloadUrl) {
+    const blob = await fetchFileBlob(file.downloadUrl);
+    return blob.arrayBuffer();
+  }
+  const { url } = await getFileStreamUrl(file);
+  const response = await fetch(url);
+  if (!response.ok) throw new Error(`Failed to load the file (${response.status})`);
+  return response.arrayBuffer();
 }
 
 export const tutorFilesApi = {
@@ -68,17 +90,19 @@ export const tutorFilesApi = {
 };
 
 export const studentFilesApi = {
-  listAll(params: PaginationQuery) {
-    return unwrapPaginated(
-      apiClient.get<ApiEnvelope<CourseFile[]>>("/student/files", { params: cleanParams(params) }),
-    );
-  },
   listForCourse(courseId: string, params: PaginationQuery = {}) {
     return unwrapPaginated(
       apiClient.get<ApiEnvelope<CourseFile[]>>(`/student/courses/${courseId}/files`, {
         params: cleanParams(params),
       }),
     );
+  },
+  /**
+   * Records that the student reached the end of this file. Idempotent on the
+   * server; the response says whether that was the last file the lesson needed.
+   */
+  markViewed(fileId: string) {
+    return unwrap(apiClient.post<ApiEnvelope<FileViewedResult>>(`/student/files/${fileId}/viewed`));
   },
 };
 

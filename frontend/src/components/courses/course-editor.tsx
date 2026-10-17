@@ -2,7 +2,7 @@
 
 import * as React from "react";
 import { useRouter, useSearchParams } from "next/navigation";
-import { useForm } from "react-hook-form";
+import { useForm, useWatch } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
 import { z } from "zod";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
@@ -51,9 +51,17 @@ import { CourseStatusBadge, StatusBadge } from "@/components/shared/status-badge
 import { CourseLessonsManager } from "@/components/tutor/course-lessons-manager";
 import { CourseFilesManager } from "@/components/tutor/course-files-manager";
 import { CourseStudentsManager } from "@/components/tutor/course-students-manager";
+import { CourseAssessmentsManager } from "@/components/assessments/course-assessments-manager";
+import { CoverImagePicker, ProgressionModeField } from "@/components/courses/course-create-form";
 import { ReassignTutorDialog } from "@/components/master/reassign-tutor-dialog";
 import { DeactivateCourseDialog } from "@/components/master/deactivate-course-dialog";
-import { masterCoursesApi, tutorCoursesApi } from "@/lib/api/courses.api";
+import { Label } from "@/components/ui/label";
+import {
+  masterCoursesApi,
+  removeCourseThumbnail,
+  tutorCoursesApi,
+  uploadCourseThumbnail,
+} from "@/lib/api/courses.api";
 import { formatDate, pluralize } from "@/lib/utils/format";
 import { cn } from "@/lib/utils";
 import { CourseStatus } from "@/types/course";
@@ -63,11 +71,12 @@ const updateCourseSchema = z.object({
   title: z.string().trim().min(1, "Course title is required").max(160, "Keep the title under 160 characters"),
   description: z.string().trim().min(10, "Write at least a sentence so students know what the course covers"),
   thumbnailUrl: z.union([z.string().url("Enter a valid URL"), z.literal("")]).optional(),
+  progressionMode: z.enum(["FREE", "SEQUENTIAL"]),
 });
 
 type UpdateCourseValues = z.infer<typeof updateCourseSchema>;
-type TabValue = "lessons" | "files" | "students" | "details";
-const TABS: TabValue[] = ["lessons", "files", "students", "details"];
+type TabValue = "lessons" | "files" | "assessments" | "students" | "details";
+const TABS: TabValue[] = ["lessons", "files", "assessments", "students", "details"];
 type ConfirmAction = "publish" | "unpublish" | "archive" | "delete" | "reactivate";
 
 export interface CourseEditorProps {
@@ -103,8 +112,10 @@ function CourseEditorContent({ courseId, basePath, isMaster }: CourseEditorProps
 
   const form = useForm<UpdateCourseValues>({
     resolver: zodResolver(updateCourseSchema),
-    defaultValues: { title: "", description: "", thumbnailUrl: "" },
+    defaultValues: { title: "", description: "", thumbnailUrl: "", progressionMode: "FREE" },
   });
+
+  const thumbnailValue = useWatch({ control: form.control, name: "thumbnailUrl" });
 
   React.useEffect(() => {
     if (courseQuery.data) {
@@ -112,6 +123,7 @@ function CourseEditorContent({ courseId, basePath, isMaster }: CourseEditorProps
         title: courseQuery.data.title,
         description: courseQuery.data.description,
         thumbnailUrl: courseQuery.data.thumbnailUrl ?? "",
+        progressionMode: courseQuery.data.progressionMode ?? "FREE",
       });
     }
   }, [courseQuery.data, form]);
@@ -130,12 +142,41 @@ function CourseEditorContent({ courseId, basePath, isMaster }: CourseEditorProps
         title: values.title,
         description: values.description,
         thumbnailUrl: values.thumbnailUrl || undefined,
+        progressionMode: values.progressionMode,
       }),
     onSuccess: () => {
       toast.success("Course details saved");
       invalidate();
     },
     onError: (error) => toast.error(error instanceof ApiError ? error.message : "Couldn't save the course. Please try again."),
+  });
+
+  // The course already exists here, so a chosen cover goes straight to the
+  // server and the form's URL field follows what comes back.
+  const thumbnailRole = isMaster ? "master" : "tutor";
+
+  const uploadThumbnailMutation = useMutation({
+    mutationFn: (file: File) => uploadCourseThumbnail(thumbnailRole, courseId, file),
+    onSuccess: (result) => {
+      form.setValue("thumbnailUrl", result.thumbnailUrl);
+      toast.success("Cover image updated");
+      void queryClient.invalidateQueries({ queryKey: ["tutor", "courses", courseId] });
+      invalidate();
+    },
+    onError: (error) =>
+      toast.error(error instanceof ApiError ? error.message : "Couldn't upload the cover image. Please try again."),
+  });
+
+  const removeThumbnailMutation = useMutation({
+    mutationFn: () => removeCourseThumbnail(thumbnailRole, courseId),
+    onSuccess: () => {
+      form.setValue("thumbnailUrl", "");
+      toast.success("Cover image removed");
+      void queryClient.invalidateQueries({ queryKey: ["tutor", "courses", courseId] });
+      invalidate();
+    },
+    onError: (error) =>
+      toast.error(error instanceof ApiError ? error.message : "Couldn't remove the cover image. Please try again."),
   });
 
   const publishMutation = useMutation({
@@ -356,16 +397,21 @@ function CourseEditorContent({ courseId, basePath, isMaster }: CourseEditorProps
         <TabsList className="w-full justify-start overflow-x-auto sm:w-fit">
           <TabsTrigger value="lessons">Lessons ({course.lessonsCount})</TabsTrigger>
           <TabsTrigger value="files">Files ({course.filesCount})</TabsTrigger>
+          <TabsTrigger value="assessments">Assessments</TabsTrigger>
           <TabsTrigger value="students">Students ({course.enrollmentsCount})</TabsTrigger>
           <TabsTrigger value="details">Details</TabsTrigger>
         </TabsList>
 
         <TabsContent value="lessons" className="mt-4">
-          <CourseLessonsManager courseId={courseId} readOnly={readOnly} />
+          <CourseLessonsManager courseId={courseId} readOnly={readOnly} progressionMode={course.progressionMode} />
         </TabsContent>
 
         <TabsContent value="files" className="mt-4">
           <CourseFilesManager courseId={courseId} readOnly={readOnly} />
+        </TabsContent>
+
+        <TabsContent value="assessments" className="mt-4">
+          <CourseAssessmentsManager courseId={courseId} role={isMaster ? "master" : "tutor"} readOnly={readOnly} />
         </TabsContent>
 
         <TabsContent value="students" className="mt-4">
@@ -413,17 +459,59 @@ function CourseEditorContent({ courseId, basePath, isMaster }: CourseEditorProps
                   />
                   <FormField
                     control={form.control}
-                    name="thumbnailUrl"
+                    name="progressionMode"
                     render={({ field }) => (
                       <FormItem>
-                        <FormLabel>Cover image URL (optional)</FormLabel>
-                        <FormControl>
-                          <Input placeholder="https://..." disabled={readOnly} {...field} />
-                        </FormControl>
+                        <FormLabel>How students move through the lessons</FormLabel>
+                        <ProgressionModeField
+                          value={field.value}
+                          onChange={field.onChange}
+                          name="edit-progression-mode"
+                          disabled={readOnly}
+                        />
+                        <FormDescription>
+                          Switching to in-order locks lessons for students who have not reached them yet.
+                        </FormDescription>
                         <FormMessage />
                       </FormItem>
                     )}
                   />
+                  <div className="space-y-2">
+                    <Label>Cover image</Label>
+                    <CoverImagePicker
+                      previewUrl={thumbnailValue || null}
+                      onFileChosen={(file) => uploadThumbnailMutation.mutate(file)}
+                      onRemove={() => {
+                        // An uploaded cover lives on the server; a pasted URL
+                        // only lives in this form.
+                        if (course.thumbnailUrl?.startsWith("/api/files/thumbnail/")) {
+                          removeThumbnailMutation.mutate();
+                        } else {
+                          form.setValue("thumbnailUrl", "");
+                        }
+                      }}
+                      disabled={readOnly}
+                      isBusy={uploadThumbnailMutation.isPending || removeThumbnailMutation.isPending}
+                    />
+                    <FormField
+                      control={form.control}
+                      name="thumbnailUrl"
+                      render={({ field }) => (
+                        <FormItem>
+                          <FormLabel className="text-xs font-normal text-muted-foreground">
+                            Or paste an image URL
+                          </FormLabel>
+                          <FormControl>
+                            <Input placeholder="https://..." disabled={readOnly} {...field} />
+                          </FormControl>
+                          <FormDescription>
+                            An upload replaces whatever is here. Save the form to keep a pasted URL.
+                          </FormDescription>
+                          <FormMessage />
+                        </FormItem>
+                      )}
+                    />
+                  </div>
                   {readOnly ? (
                     <p className="text-sm text-muted-foreground">Details cannot be changed while the course is deactivated.</p>
                   ) : (

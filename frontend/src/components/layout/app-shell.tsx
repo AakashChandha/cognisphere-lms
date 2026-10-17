@@ -47,13 +47,13 @@ export function AppShell({ role, profileHref, children }: AppShellProps) {
     <div className="flex min-h-screen bg-muted/30">
       <a
         href="#main-content"
-        className="sr-only z-50 rounded-lg bg-primary px-3 py-2 text-sm font-medium text-primary-foreground focus:not-sr-only focus:fixed focus:top-2 focus:left-2"
+        className="sr-only z-50 rounded-lg bg-primary px-3 py-2 text-sm font-medium text-primary-foreground shadow-lg focus:not-sr-only focus:fixed focus:top-2 focus:left-2"
       >
         Skip to content
       </a>
       <aside
         className={cn(
-          "fixed inset-y-0 left-0 z-20 hidden border-r border-border bg-background transition-[width,transform] duration-200 ease-out md:block",
+          "fixed inset-y-0 left-0 z-20 hidden border-r border-sidebar-border bg-sidebar transition-[width,translate] duration-(--duration-slow) ease-spring md:block",
           collapsed ? "w-0 -translate-x-full overflow-hidden border-transparent" : "w-64 translate-x-0",
           !hydrated && "transition-none",
         )}
@@ -64,7 +64,7 @@ export function AppShell({ role, profileHref, children }: AppShellProps) {
 
       <div
         className={cn(
-          "flex min-h-screen min-w-0 flex-1 flex-col transition-[padding] duration-200 ease-out",
+          "flex min-h-screen min-w-0 flex-1 flex-col transition-[padding] duration-(--duration-slow) ease-spring",
           collapsed ? "md:pl-0" : "md:pl-64",
           !hydrated && "transition-none",
         )}

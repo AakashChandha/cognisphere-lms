@@ -1,6 +1,6 @@
 # Production Deployment (first-time setup)
 
-How to stand up the LMS on **one AWS Lightsail instance**. Takes about an hour, once. After this, everything you do day to day is in [OPERATIONS.md](./OPERATIONS.md). Why the setup looks like this is in the README's *Architecture Decisions*.
+How to stand up the LMS on **one AWS Lightsail instance**. Takes about an hour, once. After this, publishing a change is [DEPLOYMENT.md](./DEPLOYMENT.md) and everything else you do day to day is in [OPERATIONS.md](./OPERATIONS.md). Why the setup looks like this is in the README's *Architecture Decisions*.
 
 ```text
 Browser ──HTTPS──▶ Caddy ──▶ /api/*  ──▶ NestJS ──▶ Postgres (container)

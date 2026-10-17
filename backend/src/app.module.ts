@@ -18,6 +18,8 @@ import { StorageModule } from './modules/storage/storage.module';
 import { CoursesModule } from './modules/courses/courses.module';
 import { LessonsModule } from './modules/lessons/lessons.module';
 import { CourseFilesModule } from './modules/course-files/course-files.module';
+import { AssessmentsModule } from './modules/assessments/assessments.module';
+import { QueriesModule } from './modules/queries/queries.module';
 import { AnnouncementsModule } from './modules/announcements/announcements.module';
 import { DashboardModule } from './modules/dashboard/dashboard.module';
 import { AuditLogsModule } from './modules/audit-logs/audit-logs.module';
@@ -45,6 +47,8 @@ import { AuditLogsModule } from './modules/audit-logs/audit-logs.module';
     CoursesModule,
     LessonsModule,
     CourseFilesModule,
+    AssessmentsModule,
+    QueriesModule,
     AnnouncementsModule,
     DashboardModule,
     AuditLogsModule,

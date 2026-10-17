@@ -1,10 +1,12 @@
 import { Injectable, NotFoundException } from '@nestjs/common';
-import { CourseStatus, Prisma } from '@prisma/client';
+import { CourseStatus, FilePurpose, Prisma } from '@prisma/client';
 import { PrismaService } from '../../prisma/prisma.service';
 import { buildPaginatedResult } from '../../common/utils/pagination.util';
 import { PaginatedResult } from '../../common/interfaces/paginated-result.interface';
 import { PaginationQueryDto } from '../../common/dto/pagination-query.dto';
 import { StudentResponseDto } from '../students/dto/student-response.dto';
+import { StudentsService } from '../students/students.service';
+import { StudentProgressDetailDto } from '../students/dto/student-progress.dto';
 import { TutorResponseDto } from './dto/tutor-response.dto';
 import { TutorDashboardDto } from './dto/tutor-dashboard.dto';
 
@@ -17,7 +19,10 @@ type TutorWithUser = Prisma.TutorGetPayload<{ include: typeof TUTOR_INCLUDE }>;
 
 @Injectable()
 export class TutorsService {
-  constructor(private readonly prisma: PrismaService) {}
+  constructor(
+    private readonly prisma: PrismaService,
+    private readonly studentsService: StudentsService,
+  ) {}
 
   async findAllPaginated(query: PaginationQueryDto): Promise<PaginatedResult<TutorResponseDto>> {
     const where: Prisma.TutorWhereInput = query.search
@@ -69,7 +74,11 @@ export class TutorsService {
         _count: true,
       }),
       this.prisma.lesson.count({ where: { course: { tutorId: tutor.id } } }),
-      this.prisma.courseFile.count({ where: { course: { tutorId: tutor.id } } }),
+      // Lesson material only: study materials, question papers, student
+      // submissions and cover images all share this table now.
+      this.prisma.courseFile.count({
+        where: { course: { tutorId: tutor.id }, purpose: FilePurpose.LESSON_MATERIAL },
+      }),
       this.prisma.enrollment.findMany({
         where: { course: { tutorId: tutor.id } },
         distinct: ['studentId'],
@@ -175,6 +184,16 @@ export class TutorsService {
       query.page,
       query.pageSize,
     );
+  }
+
+  /**
+   * One student's progress, scoped to the courses this tutor owns. The master
+   * route runs the identical computation unscoped, so the work lives in
+   * `StudentsService.getProgressDetail` and only the filter differs.
+   */
+  async getStudentProgressDetail(userId: string, studentId: string): Promise<StudentProgressDetailDto> {
+    const tutor = await this.findByUserIdOrThrow(userId);
+    return this.studentsService.getProgressDetail(studentId, tutor.id);
   }
 
   toResponseDto(tutor: TutorWithUser): TutorResponseDto {

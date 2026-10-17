@@ -47,7 +47,10 @@ export default function MasterStudentsPage() {
 
   return (
     <div className="space-y-6">
-      <PageHeader title="Students" description="Everyone who learns. Click a student to manage their account." />
+      <PageHeader
+        title="Students"
+        description="Everyone who learns. Click a student to see how far they have got. Accounts are managed under Users."
+      />
       <SearchInput value={search} onChange={setSearch} placeholder="Search students by name or email" />
 
       <DataTable
@@ -58,8 +61,8 @@ export default function MasterStudentsPage() {
         isError={isError}
         onRetry={() => void refetch()}
         emptyTitle="No students found"
-        onRowClick={(student) => router.push(`/master/users?search=${encodeURIComponent(student.email)}`)}
-        rowAriaLabel={(student) => `Manage ${student.firstName} ${student.lastName}`}
+        onRowClick={(student) => router.push(`/master/students/${student.id}`)}
+        rowAriaLabel={(student) => `View ${student.firstName} ${student.lastName}'s progress`}
       />
 
       {data ? <PaginationControls meta={data.meta} onPageChange={setPage} onPageSizeChange={setPageSize} /> : null}
