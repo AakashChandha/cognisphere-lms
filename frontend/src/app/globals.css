@@ -478,25 +478,6 @@
   }
 }
 
-/* Scrim for the auth cover photo: a dark brand-tinted wash that is heaviest
-   where the copy sits, so white text clears AA over a bright photograph. */
-@utility cover-scrim {
-  background-image:
-    linear-gradient(
-      to top,
-      oklch(0.16 0.04 288 / 0.93) 0%,
-      oklch(0.16 0.04 288 / 0.76) 32%,
-      oklch(0.16 0.04 288 / 0.28) 68%,
-      oklch(0.16 0.04 288 / 0.06) 100%
-    ),
-    linear-gradient(
-      135deg,
-      color-mix(in oklab, var(--brand-indigo) 40%, transparent) 0%,
-      transparent 48%,
-      color-mix(in oklab, var(--brand-teal) 18%, transparent) 100%
-    );
-}
-
 /* The logo gradient, for marks and thin accents. */
 @utility brand-gradient {
   background-image: var(--brand-gradient);

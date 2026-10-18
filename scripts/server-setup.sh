@@ -52,6 +52,15 @@ JSON
 systemctl enable docker >/dev/null
 systemctl restart docker
 
+# journald defaults to 10% of the disk (about 6 GB here); 200 MB is weeks of logs.
+echo "==> System log cap (200 MB)"
+mkdir -p /etc/systemd/journald.conf.d
+cat > /etc/systemd/journald.conf.d/lms.conf <<'CONF'
+[Journal]
+SystemMaxUse=200M
+CONF
+systemctl restart systemd-journald
+
 # Sized for the frontend build, not for runtime: `next build` alone peaks near
 # 2 GB, so a 2 GB instance needs real swap to get through a deploy. Steady
 # state uses far less. Override on a bigger box with SWAP_GB=2.

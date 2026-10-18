@@ -1,5 +1,5 @@
 import { ApiProperty } from '@nestjs/swagger';
-import { ArrayNotEmpty, IsArray, IsEmail, IsEnum, IsString, MinLength } from 'class-validator';
+import { ArrayMaxSize, ArrayMinSize, IsArray, IsEmail, IsEnum, IsString, MinLength } from 'class-validator';
 import { AppRole } from '../../../common/constants/roles.constant';
 
 export class CreateUserDto {
@@ -20,9 +20,11 @@ export class CreateUserDto {
   @IsString()
   lastName: string;
 
-  @ApiProperty({ enum: AppRole, isArray: true, example: [AppRole.STUDENT] })
+  /** Exactly one role: a person is a master, a tutor or a student, never a mix. */
+  @ApiProperty({ enum: AppRole, isArray: true, minItems: 1, maxItems: 1, example: [AppRole.STUDENT] })
   @IsArray()
-  @ArrayNotEmpty()
+  @ArrayMinSize(1, { message: 'A person must have exactly one role' })
+  @ArrayMaxSize(1, { message: 'A person must have exactly one role' })
   @IsEnum(AppRole, { each: true })
   roles: AppRole[];
 }

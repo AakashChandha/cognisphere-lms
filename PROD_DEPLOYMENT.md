@@ -72,9 +72,10 @@ Plain DNS only. Do not put Cloudflare's proxy in front; Caddy needs to answer on
 
 ## 4. Backup bucket
 
-1. Lightsail → Storage → **Create bucket** → region Mumbai → plan **100 GB ($3/month)** → name e.g. `cgs-lms-backups`.
-2. Bucket → **Resource access** → attach `lms-prod`. The instance can then read and write the bucket without any stored keys.
+1. Lightsail → Storage → **Create bucket** → region Mumbai → plan **5 GB ($1/month)** for PDF/PPT courses; the 100 GB plan ($3/month) only once there is video → name e.g. `cgs-lms-backups`.
+2. Bucket → **Permissions** → **Access keys** → *Create access key*. Save both values in the password manager (the secret is shown once). On the server run `sudo aws configure` and paste them, region `ap-south-1`. It must be `sudo`: the nightly backup runs as root. Attaching the instance under **Resource access** alone did not give the AWS CLI credentials on the live server (Oct 2026).
 3. Leave the bucket private (the default).
+4. Check: `sudo aws s3 ls s3://cgs-lms-backups/` should succeed without an error.
 
 ## 5. GitHub deploy key
 

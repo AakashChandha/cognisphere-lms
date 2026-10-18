@@ -103,7 +103,6 @@ function MasterUsersContent() {
       usersApi.update(values.id, {
         firstName: values.firstName,
         lastName: values.lastName,
-        roles: values.roles,
       }),
     onSuccess: () => {
       toast.success("Changes saved");

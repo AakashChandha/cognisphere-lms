@@ -15,7 +15,7 @@ import {
 } from "@/components/ui/dialog";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
-import { Checkbox } from "@/components/ui/checkbox";
+import { RadioGroup, RadioGroupItem } from "@/components/ui/radio-group";
 import {
   Form,
   FormControl,
@@ -45,7 +45,8 @@ function buildSchema(isCreate: boolean) {
       : z.string().optional().or(z.literal("")),
     firstName: z.string().trim().min(1, "First name is required"),
     lastName: z.string().trim().min(1, "Last name is required"),
-    roles: z.array(z.nativeEnum(AppRole)).min(1, "Select at least one role"),
+    // One role per person; kept as an array to match the API shape.
+    roles: z.array(z.nativeEnum(AppRole)).length(1, "Choose a role"),
   });
 }
 
@@ -162,47 +163,47 @@ export function UserFormDialog({ open, onOpenChange, user, isSubmitting, onSubmi
               </>
             ) : null}
 
-            <FormField
-              control={form.control}
-              name="roles"
-              render={({ field }) => (
-                <FormItem>
-                  <FormLabel>What can they do?</FormLabel>
-                  <div className="grid gap-2">
-                    {ROLE_OPTIONS.map((option) => {
-                      const checked = field.value.includes(option.value);
-                      const id = `role-${option.value}`;
-                      return (
-                        <label
-                          key={option.value}
-                          htmlFor={id}
-                          className="flex cursor-pointer items-start gap-3 rounded-lg border border-border p-3 text-sm transition-colors hover:bg-muted/60 has-data-checked:border-primary has-data-checked:bg-primary/5"
-                        >
-                          <Checkbox
-                            id={id}
-                            className="mt-0.5"
-                            aria-label={option.label}
-                            checked={checked}
-                            onCheckedChange={(value) => {
-                              if (value) {
-                                field.onChange([...field.value, option.value]);
-                              } else {
-                                field.onChange(field.value.filter((r) => r !== option.value));
-                              }
-                            }}
-                          />
-                          <span>
-                            <span className="block font-medium text-foreground">{option.label}</span>
-                            <span className="block text-xs text-muted-foreground">{option.hint}</span>
-                          </span>
-                        </label>
-                      );
-                    })}
-                  </div>
-                  <FormMessage />
-                </FormItem>
-              )}
-            />
+            {/* Role is chosen once, at creation; it cannot be changed afterwards. */}
+            {isCreate ? (
+              <FormField
+                control={form.control}
+                name="roles"
+                render={({ field }) => (
+                  <FormItem>
+                    <FormLabel>Role</FormLabel>
+                    <RadioGroup
+                      value={field.value[0] ?? null}
+                      onValueChange={(value) => field.onChange(value ? [value as AppRole] : [])}
+                    >
+                      {ROLE_OPTIONS.map((option) => {
+                        const id = `role-${option.value}`;
+                        return (
+                          <label
+                            key={option.value}
+                            htmlFor={id}
+                            className="flex cursor-pointer items-start gap-3 rounded-lg border border-border p-3 text-sm transition-colors hover:bg-muted/60 has-data-checked:border-primary has-data-checked:bg-primary/5"
+                          >
+                            <RadioGroupItem id={id} value={option.value} className="mt-0.5" aria-label={option.label} />
+                            <span>
+                              <span className="block font-medium text-foreground">{option.label}</span>
+                              <span className="block text-xs text-muted-foreground">{option.hint}</span>
+                            </span>
+                          </label>
+                        );
+                      })}
+                    </RadioGroup>
+                    <FormMessage />
+                  </FormItem>
+                )}
+              />
+            ) : (
+              <div className="grid gap-1 text-sm">
+                <span className="font-medium text-foreground">Role</span>
+                <span className="text-muted-foreground">
+                  {user.roles.map((role) => ROLE_OPTIONS.find((o) => o.value === role)?.label ?? role).join(", ")}
+                </span>
+              </div>
+            )}
 
             <DialogFooter>
               <Button type="button" variant="outline" onClick={() => onOpenChange(false)}>

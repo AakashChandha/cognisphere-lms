@@ -63,7 +63,7 @@ sudo scripts/deploy.sh --no-pull
 
 ## 3. Restore the database
 
-Dumps are made nightly at 02:30 IST and kept 30 days, both locally in `/var/backups/lms/` and in the bucket under `db/`.
+Dumps are made nightly at 02:30 IST and kept 30 days in the bucket under `db/`. The server keeps only the last 3 days in `/var/backups/lms/`, enough to re-upload after a failed night; older restores come from the bucket.
 
 ```bash
 ls -lh /var/backups/lms/                              # local copies
@@ -91,7 +91,7 @@ Those are plain `pg_dump` SQL, not the custom-format `.dump` files `restore-db.s
 
 ## 4. Restore uploaded files
 
-Course files are synced nightly to the bucket under `storage/`, mirroring the `backend_storage` Docker volume.
+Course files are mirrored nightly to the bucket under `storage/` from the `backend_storage` Docker volume. Files deleted in the app are removed from the bucket the same night, so a file deleted by mistake can only come back from a snapshot (last 7 days). The mirror is skipped while the volume is empty, so a rebuilt server never wipes the bucket copy before you restore from it. The same nightly run deletes audit log entries older than 2 years.
 
 ```bash
 vol=$(docker volume ls -q --filter label=com.docker.compose.volume=backend_storage)

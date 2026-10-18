@@ -4,18 +4,23 @@
 #
 #   1. pg_dump (custom format, already compressed) -> /var/backups/lms/
 #   2. copy the dump to s3://$BACKUP_BUCKET/db/
-#   3. sync the uploads volume to s3://$BACKUP_BUCKET/storage/
-#   4. prune dumps older than 30 days (local and bucket)
-#   5. refuse to report success if the root disk is over 85% full
-#   6. ping HEARTBEAT_URL (UptimeRobot) only when everything above worked,
+#   3. mirror the uploads volume to s3://$BACKUP_BUCKET/storage/ (deletions included)
+#   4. delete audit log entries older than 2 years
+#   5. prune dumps: the bucket keeps 30 days, the server only the last 3
+#      (the bucket is the real store; the local copy only covers a failed upload)
+#   6. refuse to report success if the root disk is over 85% full
+#   7. ping HEARTBEAT_URL (UptimeRobot) only when everything above worked,
 #      so a silently failing backup shows up as a missed heartbeat.
 #
-# The AWS CLI needs no stored keys when the instance is attached to the
-# bucket under Lightsail -> bucket -> "Resource access".
+# The AWS CLI reads a bucket access key from root's ~/.aws/credentials
+# (`sudo aws configure`). Attaching the instance under the bucket's
+# "Resource access" alone did not give the CLI credentials on this server.
 
 . "$(dirname "$0")/lib.sh"
 
 RETENTION_DAYS=30
+LOCAL_RETENTION_DAYS=3
+AUDIT_RETENTION_DAYS=730
 DISK_LIMIT_PCT=85
 BACKUP_DIR=/var/backups/lms
 
@@ -45,11 +50,22 @@ volume="$(docker volume ls -q --filter label=com.docker.compose.volume=backend_s
 [ -n "$volume" ] || die "backend_storage volume not found (is the stack running?)"
 storage_path="$(docker volume inspect -f '{{ .Mountpoint }}' "$volume")"
 
-log "Syncing uploads from ${storage_path} to s3://${bucket}/storage/"
-aws s3 sync --only-show-errors --exclude 'tmp/*' "$storage_path" "s3://${bucket}/storage/"
+# The bucket mirrors the server: files deleted in the app are removed here too
+# (snapshots still cover the last 7 days). An empty uploads folder is never
+# mirrored, so a freshly rebuilt server cannot wipe the copies it needs.
+if [ -n "$(find "$storage_path" -type f -not -path "${storage_path}/tmp/*" | head -n 1)" ]; then
+  log "Mirroring uploads from ${storage_path} to s3://${bucket}/storage/"
+  aws s3 sync --only-show-errors --delete --exclude 'tmp/*' "$storage_path" "s3://${bucket}/storage/"
+else
+  log "WARNING: no uploaded files on the server; skipping the mirror so the bucket copies are kept"
+fi
 
-log "Pruning dumps older than ${RETENTION_DAYS} days"
-find "$BACKUP_DIR" -name 'db-*.dump' -mtime +"$RETENTION_DAYS" -delete
+log "Deleting audit log entries older than ${AUDIT_RETENTION_DAYS} days"
+docker compose exec -T postgres psql -q -U "$pg_user" -d "$pg_db" \
+  -c "DELETE FROM audit_logs WHERE created_at < now() - interval '${AUDIT_RETENTION_DAYS} days'"
+
+log "Pruning dumps older than ${LOCAL_RETENTION_DAYS} days locally, ${RETENTION_DAYS} days in the bucket"
+find "$BACKUP_DIR" -name 'db-*.dump' -mtime +"$LOCAL_RETENTION_DAYS" -delete
 cutoff="$(date -u -d "-${RETENTION_DAYS} days" +%Y%m%d)"
 aws s3 ls "s3://${bucket}/db/" | awk '{print $4}' | while read -r key; do
   day="$(printf '%s' "$key" | sed -nE 's/^db-([0-9]{8})-.*/\1/p')"

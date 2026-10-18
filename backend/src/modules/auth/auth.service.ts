@@ -83,17 +83,9 @@ export class AuthService {
       data: { revokedAt: new Date() },
     });
 
-    const tokens = await this.issueTokenPair(tokenRecord.userId, ipAddress);
-
-    await this.auditLog.record({
-      actorId: tokenRecord.userId,
-      action: AuditAction.AUTH_TOKEN_REFRESHED,
-      entityType: 'User',
-      entityId: tokenRecord.userId,
-      ipAddress,
-    });
-
-    return tokens;
+    // Not audited: a refresh happens every 15 minutes per active user and would
+    // make up most of the audit log while recording nothing anyone acts on.
+    return this.issueTokenPair(tokenRecord.userId, ipAddress);
   }
 
   async logout(rawRefreshToken: string, userId: string, ipAddress?: string): Promise<void> {
@@ -160,6 +152,12 @@ export class AuthService {
     const refreshToken = this.jwtService.sign(refreshPayload, {
       secret: this.config.jwt.refreshSecret,
       expiresIn: this.config.jwt.refreshExpiresIn as JwtSignOptions['expiresIn'],
+    });
+
+    // Drop this user's dead tokens so the table holds only live sessions. A missing
+    // row is rejected by refresh() exactly like a revoked one.
+    await this.prisma.refreshToken.deleteMany({
+      where: { userId: user.id, OR: [{ revokedAt: { not: null } }, { expiresAt: { lt: new Date() } }] },
     });
 
     const refreshSeconds = parseDurationToSeconds(this.config.jwt.refreshExpiresIn);

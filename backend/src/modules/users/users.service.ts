@@ -89,30 +89,14 @@ export class UsersService {
       await this.assertCanDeactivate(target, actorId);
     }
 
-    if (dto.roles && !dto.roles.includes(AppRole.MASTER) && this.hasRole(target, AppRole.MASTER)) {
-      if (target.id === actorId) {
-        throw new BadRequestException('You cannot remove the administrator role from your own account');
-      }
-      await this.assertNotLastActiveMaster(target);
-    }
-
-    await this.prisma.$transaction(async (tx) => {
-      await tx.user.update({
-        where: { id },
-        data: {
-          firstName: dto.firstName,
-          lastName: dto.lastName,
-          isActive: dto.isActive,
-        },
-      });
-
-      if (dto.roles) {
-        const roles = await tx.role.findMany({ where: { name: { in: dto.roles } } });
-        await tx.userRole.deleteMany({ where: { userId: id } });
-        await tx.userRole.createMany({
-          data: roles.map((role) => ({ userId: id, roleId: role.id })),
-        });
-      }
+    // Role is fixed at creation: there is no business case for changing it, so it is not editable here.
+    await this.prisma.user.update({
+      where: { id },
+      data: {
+        firstName: dto.firstName,
+        lastName: dto.lastName,
+        isActive: dto.isActive,
+      },
     });
 
     return this.findByIdOrThrow(id);

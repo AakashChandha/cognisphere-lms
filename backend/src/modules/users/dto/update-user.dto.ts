@@ -1,6 +1,5 @@
 import { ApiPropertyOptional } from '@nestjs/swagger';
-import { IsArray, IsBoolean, IsEnum, IsOptional, IsString } from 'class-validator';
-import { AppRole } from '../../../common/constants/roles.constant';
+import { IsBoolean, IsOptional, IsString } from 'class-validator';
 
 export class UpdateUserDto {
   @ApiPropertyOptional({ example: 'Jane' })
@@ -12,12 +11,6 @@ export class UpdateUserDto {
   @IsOptional()
   @IsString()
   lastName?: string;
-
-  @ApiPropertyOptional({ enum: AppRole, isArray: true })
-  @IsOptional()
-  @IsArray()
-  @IsEnum(AppRole, { each: true })
-  roles?: AppRole[];
 
   @ApiPropertyOptional()
   @IsOptional()

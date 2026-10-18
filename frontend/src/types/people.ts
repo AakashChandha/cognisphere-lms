@@ -49,7 +49,6 @@ export interface CreateUserPayload {
 export interface UpdateUserPayload {
   firstName?: string;
   lastName?: string;
-  roles?: AppRole[];
   isActive?: boolean;
 }
 

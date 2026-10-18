@@ -2,11 +2,13 @@ import { randomUUID } from 'crypto';
 import {
   BadRequestException,
   ForbiddenException,
+  Inject,
   Injectable,
   NotFoundException,
 } from '@nestjs/common';
 import { CourseStatus, FilePurpose, Prisma, RoleName } from '@prisma/client';
 import { PrismaService } from '../../prisma/prisma.service';
+import { IStorageService, STORAGE_SERVICE } from '../storage/storage.interface';
 import { buildPaginatedResult } from '../../common/utils/pagination.util';
 import { PaginatedResult } from '../../common/interfaces/paginated-result.interface';
 import { slugify } from '../../common/utils/slug.util';
@@ -40,7 +42,10 @@ type CourseWithRelations = Prisma.CourseGetPayload<{ include: typeof COURSE_INCL
  */
 @Injectable()
 export class CoursesService {
-  constructor(private readonly prisma: PrismaService) {}
+  constructor(
+    private readonly prisma: PrismaService,
+    @Inject(STORAGE_SERVICE) private readonly storage: IStorageService,
+  ) {}
 
   /**
    * A tutor always owns the course they create. A Master may hand it to any
@@ -272,7 +277,13 @@ export class CoursesService {
 
   async removeForTutor(tutorUserId: string, courseId: string): Promise<void> {
     await this.assertTutorOwnsCourse(tutorUserId, courseId);
+    // The cascade removes the file rows but not the files, so collect them first
+    // and delete them from disk once the course is gone.
+    const files = await this.prisma.courseFile.findMany({ where: { courseId }, select: { storageKey: true } });
     await this.prisma.course.delete({ where: { id: courseId } });
+    for (const file of files) {
+      await this.storage.delete(file.storageKey);
+    }
   }
 
   async publish(tutorUserId: string, courseId: string): Promise<CourseResponseDto> {
