@@ -15,13 +15,12 @@ import { FullPageSpinner } from "@/components/shared/full-page-spinner";
 import { ErrorState } from "@/components/shared/error-state";
 import { EmptyState } from "@/components/shared/empty-state";
 import { FilePreviewPane } from "@/components/shared/file-preview-pane";
-import { FileTypeIcon, fileKindLabel } from "@/components/shared/file-type-icon";
+import { FileTypeIcon } from "@/components/shared/file-type-icon";
 import { MarkdownContent } from "@/components/shared/markdown-content";
 import { PageBreadcrumb } from "@/components/shared/page-breadcrumb";
 import { studentCoursesApi } from "@/lib/api/courses.api";
 import { studentLessonsApi } from "@/lib/api/lessons.api";
 import { studentFilesApi } from "@/lib/api/course-files.api";
-import { formatFileSize } from "@/lib/utils/format";
 import { cn } from "@/lib/utils";
 import { isLessonComplete, type Lesson } from "@/types/lesson";
 import { ApiError } from "@/types/api";
@@ -42,7 +41,6 @@ export default function StudentLessonViewerPage() {
     [params.lessonId],
   );
   const [lessonsSheetOpen, setLessonsSheetOpen] = React.useState(false);
-  const mediaRef = React.useRef<HTMLDivElement>(null);
 
   const courseQuery = useQuery({
     queryKey: ["student", "courses", courseId],
@@ -127,11 +125,6 @@ export default function StudentLessonViewerPage() {
   // In a free course the student may always move on. In a sequential one the
   // next lesson stays shut until this one is finished.
   const nextLocked = !!next && (next.isLocked === true || (isSequential && !isCompleted));
-
-  function openFile(fileId: string) {
-    setSelectedFileId(fileId);
-    mediaRef.current?.scrollIntoView({ behavior: "smooth", block: "start" });
-  }
 
   /** Idempotent, so a video "ended" event can fire freely without toast spam. */
   function markComplete() {
@@ -228,7 +221,7 @@ export default function StudentLessonViewerPage() {
           ) : filesQuery.isError && lessonFiles.length === 0 ? (
             <ErrorState onRetry={() => void filesQuery.refetch()} />
           ) : selectedFile ? (
-            <section ref={mediaRef} className="scroll-mt-20 space-y-3">
+            <section className="space-y-3">
               {lessonFiles.length > 1 ? (
                 <div className="flex flex-wrap gap-2">
                   {lessonFiles.map((file) => (
@@ -265,41 +258,6 @@ export default function StudentLessonViewerPage() {
               <p className="mt-3 text-sm text-muted-foreground">
                 Your tutor has not added material to this lesson yet. Check back soon.
               </p>
-            </section>
-          ) : null}
-
-          {lessonFiles.length > 0 ? (
-            <section className="space-y-3">
-              <h2 className="text-base font-semibold text-foreground">Materials for this lesson</h2>
-              <ul className="divide-y divide-border rounded-xl border border-border">
-                {lessonFiles.map((file) => (
-                  <li key={file.id}>
-                    <button
-                      type="button"
-                      onClick={() => openFile(file.id)}
-                      className={cn(
-                        "flex w-full items-center gap-3 px-4 py-3 text-left transition-colors hover:bg-muted/60",
-                        selectedFile?.id === file.id && "bg-primary/5",
-                      )}
-                    >
-                      <FileTypeIcon mimeType={file.mimeType} fileName={file.originalName} className="size-5 shrink-0" />
-                      <span className="min-w-0 flex-1">
-                        <span className="block truncate text-sm font-medium text-foreground">{file.originalName}</span>
-                        <span className="block text-xs text-muted-foreground">
-                          {fileKindLabel(file.mimeType, file.originalName)} · {formatFileSize(file.sizeBytes)}
-                          {file.isViewed ? " · finished" : ""}
-                        </span>
-                      </span>
-                      <span className="flex shrink-0 items-center gap-1.5 text-xs font-medium text-primary">
-                        {file.isViewed ? (
-                          <CheckCircle2 className="size-3.5 text-emerald-600 dark:text-emerald-400" />
-                        ) : null}
-                        {selectedFile?.id === file.id ? "Showing" : "Open"}
-                      </span>
-                    </button>
-                  </li>
-                ))}
-              </ul>
             </section>
           ) : null}
 

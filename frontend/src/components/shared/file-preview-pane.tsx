@@ -12,6 +12,7 @@ import {
   SlideNarrator,
   type SlideNarration,
 } from "@/components/shared/pptx-narration";
+import { sanitizePptx } from "@/components/shared/pptx-sanitize";
 import { fetchPreviewBytes, getFileStreamUrl, studentFilesApi } from "@/lib/api/course-files.api";
 import { getFilePreviewKind } from "@/lib/utils/file-preview";
 import type { PreviewFile } from "@/types/course-file";
@@ -106,8 +107,11 @@ export function FilePreviewPane({ file, onVideoEnded, trackViewing = false, onVi
       try {
         if (previewKind === "pptx") {
           const bytes = await fetchPreviewBytes(file);
+          // Drop dangling [Content_Types] overrides that crash pptx-preview
+          // (common in PptxGenJS decks). Narration reads the same bytes.
+          const cleaned = await sanitizePptx(bytes);
           if (cancelled) return;
-          setArrayBuffer(bytes);
+          setArrayBuffer(cleaned);
         } else {
           const { url } = await getFileStreamUrl(file);
           if (cancelled) return;
@@ -317,7 +321,8 @@ const PPTX_MIN_HEIGHT = 240;
 const PPTX_MIN_WIDTH = 320;
 /** Give up on a hung render after this long and show an error instead of a spinner. */
 const PPTX_RENDER_TIMEOUT_MS = 20_000;
-const PPTX_NO_SLIDES_MESSAGE = "This PowerPoint file has no slides the viewer can read.";
+const PPTX_NO_SLIDES_MESSAGE =
+  "Preview unavailable: this PowerPoint file has no slides the viewer can read. Ask your tutor to re-upload it, ideally saved from PowerPoint or as a PDF.";
 
 /** 16:9 until the deck's real slide ratio has been measured. */
 const DEFAULT_SLIDE_RATIO = 9 / 16;
@@ -642,8 +647,12 @@ function PptxPreviewPane({
         setSlideIndex(previewer.currentIndex);
       } catch (err) {
         if (!disposed && token === renderToken) {
-          const detail = err instanceof Error ? err.message : String(err);
-          setError(`Unable to render this PowerPoint file in the browser. (${detail})`);
+          // pptx-preview swallows its loader errors and then throws on an empty
+          // slide list (e.g. "reading 'background'"), so the message is never
+          // useful to a learner: show the no-slides text and keep the detail for us.
+          console.error("pptx-preview failed", err);
+          host.innerHTML = "";
+          setError(PPTX_NO_SLIDES_MESSAGE);
         }
       } finally {
         if (!disposed && token === renderToken) {
